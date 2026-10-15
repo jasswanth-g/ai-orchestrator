@@ -77,6 +77,25 @@
   details summary { cursor: pointer; font-weight: 600; font-size: 15px; }
   details[open] summary { margin-bottom: 8px; }
   .since { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .panel { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .panel input[type=search], .panel input[type=text], .note-form textarea, .note-form select { font: inherit; width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+  .chatlist { max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; }
+  .chatlist label { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .chatlist label:last-child { border-bottom: none; }
+  .chatlist label:hover { background: var(--soft); }
+  .chatlist .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .chatlist .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn { font: inherit; font-weight: 600; font-size: 13px; border-radius: 8px; padding: 5px 12px; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .notes { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+  .note { font-size: 13px; padding: 4px 8px; border-radius: 6px; background: var(--soft); display: flex; gap: 8px; align-items: flex-start; }
+  .note .kind { font-weight: 600; font-size: 11px; text-transform: uppercase; color: var(--muted); white-space: nowrap; padding-top: 1px; }
+  .note.recommendation .kind { color: var(--ok); }
+  .note .text { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .note button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
+  .note-form { margin-top: 8px; display: grid; gap: 6px; }
+  .note-form textarea { min-height: 70px; resize: vertical; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -110,6 +129,23 @@
     <section class="card" id="waCard">
       <div class="row"><h2>WhatsApp</h2><span id="waPill" class="pill dot idle">—</span></div>
       <dl id="waFacts"></dl>
+      <div class="toolbar" style="margin-top:10px"><button type="button" class="btn" id="pickChats">Choose chats &amp; keywords</button></div>
+      <div class="panel" id="picker" hidden>
+        <input type="search" id="chatSearch" placeholder="Search chats">
+        <div class="toolbar" style="margin-top:8px">
+          <label><input type="checkbox" id="showDirect"> Show 1:1 chats</label>
+          <span class="muted" id="pickCount"></span>
+        </div>
+        <div class="chatlist" id="chatList"></div>
+        <div id="missingChats" class="muted" style="font-size:12px"></div>
+        <label class="muted" for="keywords" style="font-size:12px">Keywords (comma separated) — a group message containing one counts as for you</label>
+        <input type="text" id="keywords" placeholder="e.g. Jasswanth, Jass">
+        <div class="toolbar" style="margin-top:10px">
+          <button type="button" class="btn primary" id="savePicker">Save</button>
+          <button type="button" class="btn" id="cancelPicker">Cancel</button>
+          <span class="muted" id="pickerMsg"></span>
+        </div>
+      </div>
       <div class="counts" id="waCounts"></div>
       <div class="since" id="waSince"></div>
     </section>
@@ -122,6 +158,17 @@
       <tbody id="tasks"></tbody>
     </table></div>
     <div id="tasksEmpty" class="empty" hidden>No open tasks from the agents.</div>
+  </section>
+
+  <section class="card section" id="ignoredCard" hidden>
+    <details>
+      <summary>Ignored bugs <span id="ignoredCount" class="muted"></span></summary>
+      <p class="muted" style="margin:0 0 8px">No task and no updates for these. Restore brings the bug back.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Bug</th><th>Ignored</th><th></th></tr></thead>
+        <tbody id="ignored"></tbody>
+      </table></div>
+    </details>
   </section>
 
   <section class="card section" id="skippedCard" hidden>
@@ -192,8 +239,7 @@ function renderSources(s) {
   $('adoHint').textContent = adoNote ?? '';
   facts($('adoFacts'), ado.enabled ? [
     ['Account', ado.account],
-    ['Groups', ado.groups != null ? `${ado.groups} (group @mentions count)` : null],
-    ['My apps', ado.myApps?.length ? ado.myApps.join(', ') : 'none set'],
+    ['Tracks', 'bugs assigned to you, or mentioning you by name'],
     ['Last event', ago(ado.lastEventAt)],
     ['Catch-up', ado.lastCatchUp ? `${ado.lastCatchUp.summary}, ${ago(ado.lastCatchUp.at)}` : 'running…'],
   ] : []);
@@ -205,7 +251,7 @@ function renderSources(s) {
   pill($('waPill'), tone, label);
   facts($('waFacts'), wa.enabled ? [
     ['Account', wa.link?.pushName ? `${wa.link.pushName}${wa.link.account ? ` (+${wa.link.account})` : ''}` : null],
-    ['Watching', wa.watch?.length ? wa.watch.join(', ') : 'every chat (set WHATSAPP_WATCH_CHATS)'],
+    ['Watching', wa.watch?.length ? wa.watch.join(', ') : 'nothing yet — choose chats below'],
     ['Keywords', wa.keywords?.length ? wa.keywords.join(', ') : 'none'],
     ['Last message', ago(wa.lastEventAt)],
     ['Catch-up', wa.lastCatchUp ? `${wa.lastCatchUp.summary}, ${ago(wa.lastCatchUp.at)}` : 'running…'],
@@ -225,7 +271,7 @@ function renderTasks(tasks) {
   $('taskCount').textContent = tasks.length ? `(${tasks.length})` : '';
   $('tasksEmpty').hidden = tasks.length > 0;
   $('tasks').replaceChildren(...tasks.map((t) => el('tr', {},
-    el('td', {}, t.link ? el('a', { href: t.link, target: '_blank', rel: 'noopener', textContent: t.title }) : t.title, el('div', { className: 'muted', textContent: `#${t.id} · P${t.priority}${t.status && t.status !== 'todo' ? ` · ${t.status}` : ''}` })),
+    el('td', {}, t.link ? el('a', { href: t.link, target: '_blank', rel: 'noopener', textContent: t.title }) : t.title, el('div', { className: 'muted', textContent: `#${t.id} · P${t.priority}${t.status && t.status !== 'todo' ? ` · ${t.status}` : ''}` }), t.bugId ? bugNotes(t) : null),
     el('td', {}, el('span', { className: `pill ${t.source === 'whatsapp' ? 'ok' : 'info'}`, textContent: t.source === 'whatsapp' ? 'WhatsApp' : 'Azure DevOps' })),
     el('td', {}, el('div', { className: 'tags' }, ...t.labels.filter((l) => !HIDE(l)).sort((a, b) => HOT.has(b) - HOT.has(a)).map((l) => el('span', { className: `tag${HOT.has(l) ? ' hot' : ''}`, textContent: l })))),
     el('td', { className: 'when', textContent: ago(t.createdAt) }),
@@ -258,11 +304,126 @@ function actionButton(label, run, needsConfirm = false) {
 
 function taskActions(t) {
   return el('div', { className: 'actions' },
+    t.bugId ? actionButton('Add note', () => openNoteForm(t)) : null,
     t.labels.includes('needs-reply') ? actionButton('Replied', () => act(t.id, 'replied')) : null,
     t.labels.includes('new-comment') ? actionButton('Mark read', () => act(t.id, 'read')) : null,
+    t.bugId ? actionButton('Ignore', () => act(t.id, 'ignore'), true) : null,
     actionButton('Done', () => act(t.id, 'done'), true),
   );
 }
+
+async function postJson(path, body = {}) {
+  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// ── Bug notes for the Investigator ──────────────────────────────────────
+let noteFormFor = null; // task id with an open note form; pauses task re-rendering
+
+function bugNotes(t) {
+  const box = el('div', { className: 'notes' });
+  (t.notes ?? []).forEach((n, i) => {
+    const del = el('button', { type: 'button', textContent: '×', title: 'Delete note' });
+    del.onclick = () => postJson(`/api/bugs/${t.bugId}/notes/${i}/delete`).then(refresh);
+    box.append(el('div', { className: `note ${n.type}` }, el('span', { className: 'kind', textContent: n.type === 'recommendation' ? 'Recommend' : 'Comment' }), el('span', { className: 'text', textContent: n.text }), del));
+  });
+  if (noteFormFor === t.id) box.append(noteForm(t));
+  return box;
+}
+
+function noteForm(t) {
+  const type = el('select', {}, el('option', { value: 'comment', textContent: 'Comment — context for the Investigator' }), el('option', { value: 'recommendation', textContent: 'Recommendation — how you think it should be fixed' }));
+  const text = el('textarea', { placeholder: 'Rough is fine — the Investigator rewrites it into its report.' });
+  const save = el('button', { type: 'button', className: 'btn primary', textContent: 'Save note' });
+  const cancel = el('button', { type: 'button', className: 'btn', textContent: 'Cancel' });
+  const msg = el('span', { className: 'muted' });
+  save.onclick = async () => {
+    if (!text.value.trim()) return (msg.textContent = 'Write something first.');
+    save.disabled = true;
+    try {
+      await postJson(`/api/bugs/${t.bugId}/notes`, { type: type.value, text: text.value });
+      noteFormFor = null;
+      await refresh();
+    } catch (e) {
+      save.disabled = false;
+      msg.textContent = e.message;
+    }
+  };
+  cancel.onclick = () => { noteFormFor = null; render(last, true); };
+  setTimeout(() => text.focus(), 0);
+  return el('div', { className: 'note-form' }, type, text, el('div', { className: 'toolbar' }, save, cancel, msg));
+}
+
+function openNoteForm(t) {
+  noteFormFor = t.id;
+  render(last, true);
+}
+
+// ── Ignored bugs ────────────────────────────────────────────────────────
+function renderIgnored(items) {
+  $('ignoredCard').hidden = items.length === 0;
+  $('ignoredCount').textContent = `(${items.length})`;
+  $('ignored').replaceChildren(...items.map((b) => el('tr', {},
+    el('td', {}, el('b', { textContent: `Bug ${b.id}` }), el('div', { className: 'muted', textContent: b.title })),
+    el('td', { className: 'when', textContent: ago(b.at) }),
+    el('td', {}, el('div', { className: 'actions' }, actionButton('Restore', () => postJson(`/api/bugs/${b.id}/restore`).then(refresh)))),
+  )));
+}
+
+// ── WhatsApp chat picker ────────────────────────────────────────────────
+let picker = null; // { chats, selected: Set, missing } while open; pauses nothing else
+
+async function openPicker() {
+  $('pickerMsg').textContent = 'Loading chats…';
+  $('picker').hidden = false;
+  $('pickChats').hidden = true;
+  const d = await (await fetch('/api/whatsapp/chats', { cache: 'no-store' })).json();
+  picker = { chats: d.chats, selected: new Set([...d.chats.filter((c) => c.watched).map((c) => c.jid), ...d.missing]), missing: d.missing };
+  $('keywords').value = d.keywords.join(', ');
+  $('pickerMsg').textContent = d.chats.length ? '' : 'No chats yet — is the bridge linked?';
+  drawChats();
+}
+
+function drawChats() {
+  if (!picker) return;
+  const q = $('chatSearch').value.trim().toLowerCase();
+  const direct = $('showDirect').checked;
+  const shown = picker.chats.filter((c) => (c.isGroup || direct || picker.selected.has(c.jid)) && (!q || c.name.toLowerCase().includes(q)));
+  shown.sort((a, b) => picker.selected.has(b.jid) - picker.selected.has(a.jid));
+  $('chatList').replaceChildren(...shown.map((c) => {
+    const box = el('input', { type: 'checkbox', checked: picker.selected.has(c.jid) });
+    box.onchange = () => { box.checked ? picker.selected.add(c.jid) : picker.selected.delete(c.jid); drawCount(); };
+    const meta = `${c.isGroup ? 'group' : '1:1'} · ${c.messages30d} msgs/30d · ${ago(c.lastMessageAt)}`;
+    return el('label', {}, box, el('span', { className: 'name', textContent: c.name }), el('span', { className: 'meta', textContent: meta }));
+  }));
+  $('missingChats').textContent = picker.missing.length ? `Also watching (not seen by the bridge yet): ${picker.missing.join(', ')}` : '';
+  drawCount();
+}
+
+function drawCount() {
+  $('pickCount').textContent = `${picker.selected.size} selected`;
+}
+
+function closePicker() {
+  picker = null;
+  $('picker').hidden = true;
+  $('pickChats').hidden = false;
+}
+
+$('pickChats').onclick = () => openPicker().catch((e) => ($('pickerMsg').textContent = e.message));
+$('chatSearch').oninput = drawChats;
+$('showDirect').onchange = drawChats;
+$('cancelPicker').onclick = closePicker;
+$('savePicker').onclick = async () => {
+  try {
+    await postJson('/api/settings/whatsapp', { watch: [...picker.selected], keywords: $('keywords').value.split(',') });
+    closePicker();
+    await refresh();
+  } catch (e) {
+    $('pickerMsg').textContent = e.message;
+  }
+};
 
 function renderSkipped(items) {
   $('skippedCard').hidden = items.length === 0;
@@ -303,12 +464,14 @@ function renderActivity(items) {
   )));
 }
 
-function render(d) {
+function render(d, force = false) {
   if (!d) return;
   last = d;
   $('todoLink').href = d.todoDashboardUrl;
   renderSources(d.sources);
-  renderTasks(d.tasks);
+  // Don't wipe a note being typed; the next refresh after closing catches up.
+  if (force || noteFormFor === null) renderTasks(d.tasks);
+  renderIgnored(d.ignoredBugs ?? []);
   renderActivity(d.activity);
   $('updated').textContent = `Updated ${new Date(d.now).toLocaleTimeString()}`;
 }

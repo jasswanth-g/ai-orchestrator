@@ -107,10 +107,7 @@ bridges/whatsapp (child) ─── localhost ─────┘   /hooks/ado, /h
 ```
 
 ```bash
-export ADO_MY_APPS="eB2B Buyer App,Seller App"      # optional
-export WHATSAPP_WATCH_CHATS="EB2b tech group,Qwipo X TCPL : ONDC"
-export WHATSAPP_KEYWORDS="Jasswanth"
-bun run agents
+bun run agents                                      # then pick WhatsApp chats on the dashboard
 bun run ado-hooks create https://<public-host>      # one-time, after the tunnel is up
 ```
 
@@ -119,17 +116,18 @@ bun run ado-hooks create https://<public-host>      # one-time, after the tunnel
 | `AGENTS_PORT` | Event server port, default 4320 |
 | `ADO` | `off` = no Azure DevOps (default on: startup catch-up even without a tunnel) |
 | `ADO_HOOK_SECRET` | Basic-auth password on the ADO service hooks; default a stored secret in `ado-hook-secret` (0600) next to the todo-brain DB |
-| `ADO_MY_APPS` | `Custom.Application` values I own (new bugs there become tasks) |
 | `ADO_ORG` / `ADO_PROJECT` | Default `https://dev.azure.com/xavica` / `Qwipo B2B` |
 | `WHATSAPP_BRIDGE` | `off` = don't start the bridge |
-| `WHATSAPP_WATCH_CHATS` | Chat names or JIDs to act on; empty = every chat, 1:1 included |
-| `WHATSAPP_KEYWORDS` | Words that make a group message "for me" |
+| `WHATSAPP_WATCH_CHATS` / `WHATSAPP_KEYWORDS` | First-run defaults only; after that the dashboard's **Choose chats & keywords** owns them (`agents-settings.json`). Nothing selected = nothing watched |
 | `WHATSAPP_STORE_DIR` | Bridge session + `messages.db`; default the whatsapp-mcp store, so the WhatsApp MCP server keeps reading the same data |
 
 **Dashboard:** `http://127.0.0.1:4320/` — each source's status (ADO account,
 last catch-up or start error; WhatsApp link state), counts of tasks created /
 notes / ignored / errors (kept across restarts, with the date counting began),
-the open tasks the agents created with **Replied** / **Mark read** / **Done**,
+the open tasks the agents created with **Replied** / **Mark read** / **Done**, and
+for bugs **Add note** (a comment or recommendation, kept in `bug-notes.json` for
+the Investigator to use and rewrite — never posted to ADO as-is) and **Ignore**
+(closes the task and drops later events; **Restore** from the Ignored bugs list),
 the activity feed (`agents-activity.jsonl`, last 500) and the WhatsApp messages
 the rules skipped (`whatsapp-skipped.jsonl`, last 100). State files live next to
 the todo-brain DB.
@@ -139,8 +137,8 @@ the todo-brain DB.
 | Event | Task |
 |---|---|
 | Bug assigned to me | created (`assigned`) |
-| Comment mentions me / one of my groups | created (`mentioned` / `team-mentioned`), comment attached |
-| New bug in one of `ADO_MY_APPS` | created (`my-area`) |
+| Comment mentions **me by name** | created (`mentioned`), comment attached. Group mentions (`@Dev`, `@QA`) don't count |
+| A bug I ignored on the dashboard | nothing |
 | Any comment / state / assignment change on a tracked bug | comment attached; comments add `new-comment`; reopened bug reopens a done task |
 | My own changes, closed bugs, everything else | ignored |
 

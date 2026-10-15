@@ -41,7 +41,7 @@ describe('WhatsAppIntake', () => {
   let intake: WhatsAppIntake;
   beforeEach(() => {
     store = new InMemoryStore();
-    intake = new WhatsAppIntake({ store, keywords: [] });
+    intake = new WhatsAppIntake({ store, keywords: () => [] });
   });
 
   test('one task per chat; later messages for me become comments', async () => {

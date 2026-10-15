@@ -2,6 +2,7 @@
 import { dirname, join } from 'node:path';
 import { adoHookSecret, adoReceiver } from './ado/receiver.ts';
 import { agentsDashboard } from './agents-dashboard/routes.ts';
+import { BugNotes, Settings } from './agents-settings.ts';
 import { dbPath, log, pickStore } from './config.ts';
 import { ActivityLog } from './events/activity.ts';
 import { errText, type Receiver } from './events/receiver.ts';
@@ -20,8 +21,8 @@ import { whatsappUi } from './whatsapp/ui.ts';
  *   /                 agents dashboard: sources, agent tasks, activity feed
  *   /whatsapp         connection page: status, pairing QR, unlink
  *
- * Env: AGENTS_PORT (4320), ADO (off), ADO_HOOK_SECRET (default: stored secret), ADO_MY_APPS, WHATSAPP_WATCH_CHATS,
- * WHATSAPP_KEYWORDS, WHATSAPP_STORE_DIR (bridge session + messages.db).
+ * Env: AGENTS_PORT (4320), ADO (off), ADO_HOOK_SECRET (default: stored secret),
+ * WHATSAPP_WATCH_CHATS / WHATSAPP_KEYWORDS (first-run defaults; then the dashboard), WHATSAPP_STORE_DIR (bridge session + messages.db).
  */
 
 const port = Number(process.env.AGENTS_PORT ?? 4320);
@@ -30,6 +31,12 @@ const stateDir = dirname(dbPath);
 const store = pickStore();
 const receivers: Receiver[] = [];
 const activity = new ActivityLog(join(stateDir, 'agents-activity.jsonl'));
+// Watched chats, keywords and ignored bugs — edited on the dashboard; env vars only seed the first run.
+const settings = new Settings(join(stateDir, 'agents-settings.json'), {
+  watch: list(process.env.WHATSAPP_WATCH_CHATS),
+  keywords: list(process.env.WHATSAPP_KEYWORDS),
+});
+const bugNotes = new BugNotes(join(stateDir, 'bug-notes.json'));
 
 // ADO is on unless ADO=off. Without a tunnel it still runs the startup catch-up.
 const adoOn = process.env.ADO !== 'off';
@@ -40,7 +47,7 @@ if (adoOn) {
       await adoReceiver({
         store,
         secret: adoHookSecret(),
-        myApps: list(process.env.ADO_MY_APPS),
+        isIgnored: settings.isIgnored,
         seen: new SeenIds(join(stateDir, 'ado-events-seen.json')),
         activity,
         statsFile: join(stateDir, 'ado-stats.json'),
@@ -55,18 +62,16 @@ if (adoOn) {
 
 const bridgeOn = process.env.WHATSAPP_BRIDGE !== 'off';
 const waStoreDir = resolvePath(process.env.WHATSAPP_STORE_DIR ?? '~/Documents/GitHub/whatsapp-mcp/whatsapp-bridge/store');
-const waWatch = list(process.env.WHATSAPP_WATCH_CHATS);
 // Shared with the bridge and the WhatsApp MCP server via <store>/bridge-secret.
 const waSecret = bridgeOn ? bridgeSecret(waStoreDir) : '';
 if (bridgeOn) {
-  if (!waWatch.length) log('whatsapp: WHATSAPP_WATCH_CHATS is empty — every chat counts, 1:1 chats included');
+  if (!settings.whatsapp.watch.length) log('whatsapp: no chats watched yet — pick them on the dashboard');
   receivers.push(
     whatsappReceiver({
       store,
       secret: waSecret,
       storeDir: waStoreDir,
-      watch: waWatch,
-      keywords: list(process.env.WHATSAPP_KEYWORDS),
+      settings: () => settings.whatsapp,
       seen: new SeenIds(join(stateDir, 'whatsapp-seen.json')),
       checkpointFile: join(stateDir, 'whatsapp-checkpoint.txt'),
       activity,
@@ -77,9 +82,10 @@ if (bridgeOn) {
 } else log('whatsapp: off (WHATSAPP_BRIDGE=off)');
 
 const bridge = bridgeOn
-  ? new BridgeSupervisor({ storeDir: waStoreDir, eventUrl: `http://127.0.0.1:${port}/hooks/whatsapp`, secret: waSecret, watch: waWatch })
+  ? // The bridge forwards every chat; the intake filters by the (editable) watch list.
+    new BridgeSupervisor({ storeDir: waStoreDir, eventUrl: `http://127.0.0.1:${port}/hooks/whatsapp`, secret: waSecret, watch: [] })
   : undefined;
-const whatsappPage = whatsappUi({ bridge, watch: waWatch, port });
+const whatsappPage = whatsappUi({ bridge, watch: () => settings.whatsapp.watch, port });
 const dashboard = agentsDashboard({
   port,
   store,
@@ -88,6 +94,9 @@ const dashboard = agentsDashboard({
   bridge,
   adoOn,
   adoError,
+  settings,
+  bugNotes,
+  waStoreDir: bridgeOn ? waStoreDir : undefined,
   todoDashboardUrl: `http://127.0.0.1:${process.env.TODO_BRAIN_DASHBOARD_PORT ?? 4319}`,
 });
 

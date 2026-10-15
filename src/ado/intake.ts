@@ -17,16 +17,15 @@ const TRACKED_DAYS = 90;
 
 export interface Me {
   email: string;
-  /** My identity id plus every group I belong to — a mention of any of them reaches me. */
+  /** Only a mention of this id counts — group mentions (@Dev, @QA) don't. */
   identityId: string;
-  groupIds: string[];
 }
 
 export interface IntakeOptions {
   store: Store;
   me: Me;
-  /** Custom.Application values I own: any new bug there becomes a task. */
-  myApps: string[];
+  /** Bugs I chose to ignore: no task, and later events are dropped. */
+  isIgnored?: (bugId: number) => boolean;
   /** Work item link, e.g. https://dev.azure.com/org/project/_workitems/edit/<id>. */
   bugUrl: (id: number) => string;
   now?: () => Date;
@@ -56,20 +55,17 @@ export class BugIntake {
     return item ? { item, closed: true } : undefined;
   }
 
-  /** Why this event concerns me, or undefined when it doesn't. */
+  /** Why this event concerns me — assigned to me, or a comment naming me — else undefined. */
   private reasonToTrack(e: BugEvent): string | undefined {
     const { me } = this.o;
-    if (e.kind === 'created') return e.bug.application && this.o.myApps.includes(e.bug.application) ? 'my-area' : undefined;
     if (e.kind === 'assigned') return e.bug.assignedTo?.email === me.email ? 'assigned' : undefined;
-    if (e.kind === 'comment') {
-      if (e.mentionIds.includes(me.identityId)) return 'mentioned';
-      if (e.mentionIds.some((id) => me.groupIds.includes(id))) return 'team-mentioned';
-    }
+    if (e.kind === 'comment' && e.mentionIds.includes(me.identityId)) return 'mentioned';
     return undefined;
   }
 
   async handle(e: BugEvent): Promise<Outcome> {
     const { bug } = e;
+    if (this.o.isIgnored?.(bug.id)) return { bug: bug.id, action: 'ignored', reason: 'you ignored this bug' };
     if ('by' in e && e.by?.email === this.o.me.email) return { bug: bug.id, action: 'ignored', reason: 'my own change' };
 
     const tracked = await this.find(bug.id);
@@ -96,6 +92,7 @@ export class BugIntake {
 
   /** Creates the task for a bug found outside an event (startup catch-up). */
   async track(bug: Bug, reason: string): Promise<Outcome> {
+    if (this.o.isIgnored?.(bug.id)) return { bug: bug.id, action: 'ignored', reason: 'you ignored this bug' };
     if (await this.find(bug.id)) return { bug: bug.id, action: 'ignored', reason: 'already tracked' };
     const item = await this.create(bug, reason);
     return { bug: bug.id, action: 'created', reason, taskId: item.id };

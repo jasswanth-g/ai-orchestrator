@@ -49,25 +49,24 @@ export class AdoClient {
     return (await res.json()) as T;
   }
 
-  /** My identity, its email, and every group (expanded) a mention could reach me through. */
+  /** My identity id (what a direct @mention carries) and email. */
   async me(): Promise<Me> {
     const email = Bun.spawnSync(['az', 'account', 'show', '--query', 'user.name', '-o', 'tsv']).stdout.toString().trim().toLowerCase();
-    const vssps = `https://vssps.dev.azure.com/${this.orgName}/_apis/identities`;
-    type Identity = { id: string; descriptor: string; memberOf?: Array<string | { identifier: string; identityType: string }> };
-    const found = await this.call<{ value: Identity[] }>(
-      `${vssps}?searchFilter=General&filterValue=${encodeURIComponent(email)}&queryMembership=Expanded&${API}`,
+    if (!email) throw new Error('not logged in to az — run `az login`');
+    const found = await this.call<{ value: Array<{ id: string }> }>(
+      `https://vssps.dev.azure.com/${this.orgName}/_apis/identities?searchFilter=General&filterValue=${encodeURIComponent(email)}&${API}`,
     );
     const self = found.value[0];
     if (!self) throw new Error(`no ADO identity for ${email}`);
-    const descriptors = (self.memberOf ?? []).map((m) => (typeof m === 'string' ? m : `${m.identityType};${m.identifier}`));
-    const groups = descriptors.length
-      ? await this.call<{ value: Array<{ id: string } | null> }>(`${vssps}?descriptors=${descriptors.map(encodeURIComponent).join(',')}&${API}`)
-      : { value: [] };
-    return {
-      email,
-      identityId: self.id.toLowerCase(),
-      groupIds: groups.value.flatMap((g) => (g ? [g.id.toLowerCase()] : [])),
-    };
+    return { email, identityId: self.id.toLowerCase() };
+  }
+
+  /** Comment HTML on a work item, oldest first (first 200). */
+  async comments(id: number): Promise<string[]> {
+    const r = await this.call<{ comments: Array<{ text: string }> }>(
+      `${this.projectUrl}/_apis/wit/workItems/${id}/comments?api-version=7.0-preview.3&$top=200&order=asc`,
+    );
+    return r.comments.map((c) => c.text);
   }
 
   async wiql(query: string): Promise<number[]> {

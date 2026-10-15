@@ -3,7 +3,8 @@ import { htmlToText, mentionIds, parsePayload, toPerson } from '../src/ado/event
 import { BugIntake, NEW_COMMENT, TO_INVESTIGATE } from '../src/ado/intake.ts';
 import { InMemoryStore } from '../src/store/in-memory.ts';
 
-const ME = { email: 'me@qwipo.com', identityId: 'fb9dd439-fd08-6b65-911a-28cc5812721f', groupIds: ['20e22acd-6baa-4920-950d-87abb38cc120'] };
+const ME = { email: 'me@qwipo.com', identityId: 'fb9dd439-fd08-6b65-911a-28cc5812721f' };
+const MY_GROUP = '20e22acd-6baa-4920-950d-87abb38cc120';
 const STRANGER = 'a65a9f1e-b353-4d39-8511-881666abb71a';
 const mention = (id: string, name: string) => `<a href="#" data-vss-mention="version:2.0,${id}">@${name}</a>`;
 
@@ -68,6 +69,7 @@ describe('parsePayload', () => {
 describe('BugIntake', () => {
   let store: InMemoryStore;
   let intake: BugIntake;
+  let ignored: Set<number>;
   const handle = async (p: object) => {
     const out = [];
     for (const e of parsePayload(p)) out.push(await intake.handle(e));
@@ -76,7 +78,8 @@ describe('BugIntake', () => {
 
   beforeEach(() => {
     store = new InMemoryStore();
-    intake = new BugIntake({ store, me: ME, myApps: ['Seller App'], bugUrl: (id) => `https://ado/${id}` });
+    ignored = new Set();
+    intake = new BugIntake({ store, me: ME, isIgnored: (id) => ignored.has(id), bugUrl: (id) => `https://ado/${id}` });
   });
 
   test('a direct mention creates one task carrying the comment', async () => {
@@ -87,9 +90,18 @@ describe('BugIntake', () => {
     expect(task?.labels).toEqual(['ado-21583', 'bug', TO_INVESTIGATE, 'mentioned', 'eb2b-buyer-app']);
   });
 
-  test('a mention of one of my groups is tracked as team-mentioned', async () => {
-    const [out] = await handle(commented(mention(ME.groupIds[0]!, 'Dev')));
-    expect(out?.reason).toBe('team-mentioned');
+  test('a group mention (@Dev) does not count — only my name does', async () => {
+    const [out] = await handle(commented(mention(MY_GROUP, 'Dev')));
+    expect(out?.action).toBe('ignored');
+    expect(await store.list('work')).toEqual([]);
+  });
+
+  test('an ignored bug gets no task and no notes', async () => {
+    ignored.add(21583);
+    const [out] = await handle(commented(mention(ME.identityId, 'Me')));
+    expect(out).toMatchObject({ action: 'ignored', reason: 'you ignored this bug' });
+    expect((await intake.track({ id: 21583, title: 't', state: 'Active' }, 'assigned')).action).toBe('ignored');
+    expect(await store.list('work')).toEqual([]);
   });
 
   test('comments that do not mention me on untracked bugs are ignored', async () => {
@@ -117,10 +129,9 @@ describe('BugIntake', () => {
     expect(out?.reason).toBe('my own change');
   });
 
-  test('a new bug in one of my apps is tracked; other apps are not', async () => {
-    const created = (app: string) => ({ eventType: 'workitem.created', resource: { id: 1, fields: bugFields({ 'Custom.Application': app }) } });
-    expect((await handle(created('Seller Web')))[0]?.action).toBe('ignored');
-    expect((await handle(created('Seller App')))[0]).toMatchObject({ action: 'created', reason: 'my-area' });
+  test('a newly created bug is not tracked unless it is assigned to me later', async () => {
+    const created = { eventType: 'workitem.created', resource: { id: 1, fields: bugFields() } };
+    expect((await handle(created))[0]?.action).toBe('ignored');
   });
 
   test('closed bugs are not turned into tasks', async () => {

@@ -10,7 +10,8 @@ import { adoHookSecret } from './ado/receiver.ts';
  *   bun run ado-hooks delete                          (removes the ones pointing at /hooks/ado)
  */
 
-const EVENTS = ['workitem.created', 'workitem.updated', 'workitem.commented'] as const;
+// Assignment changes and comments are all the intake acts on.
+const EVENTS = ['workitem.updated', 'workitem.commented'] as const;
 const PATH = '/hooks/ado';
 
 const ado = new AdoClient(adoConfig());

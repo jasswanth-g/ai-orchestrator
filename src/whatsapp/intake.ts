@@ -51,7 +51,8 @@ export function reasonForMe(m: WaMessage, keywords: string[]): string | undefine
 }
 
 export class WhatsAppIntake {
-  constructor(private readonly o: { store: Store; keywords: string[] }) {}
+  /** `keywords` is read per message, so dashboard edits apply at once. */
+  constructor(private readonly o: { store: Store; keywords: () => string[] }) {}
 
   private chatLabel = (m: WaMessage) => `wa-${toLabel(m.chat_name || userOf(m.chat_jid))}`;
 
@@ -77,7 +78,7 @@ export class WhatsAppIntake {
       return { id: m.id, action: 'annotated', reason: 'you replied', taskId: task.id };
     }
 
-    const reason = reasonForMe(m, this.o.keywords);
+    const reason = reasonForMe(m, this.o.keywords());
     if (!reason) return { id: m.id, action: 'ignored', reason: 'not for me' };
 
     if (task) {

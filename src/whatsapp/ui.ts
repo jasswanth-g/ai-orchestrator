@@ -9,11 +9,11 @@ import type { BridgeSupervisor } from './bridge.ts';
 
 const page = Bun.file(new URL('./page.html', import.meta.url));
 
-export function whatsappUi(o: { bridge?: BridgeSupervisor; watch: string[]; port: number }) {
+export function whatsappUi(o: { bridge?: BridgeSupervisor; watch: () => string[]; port: number }) {
   const localHosts = new Set([`127.0.0.1:${o.port}`, `localhost:${o.port}`]);
 
   async function status() {
-    const base = { watch: o.watch };
+    const base = { watch: o.watch() };
     if (!o.bridge) return { ...base, state: 'off' };
     if (o.bridge.state === 'other_bridge') return { ...base, state: 'other_bridge' };
     if (o.bridge.state === 'build_failed') return { ...base, state: 'error', error: 'Bridge build failed — see the agents log.' };

@@ -6,7 +6,7 @@ import { type ActivityLog, SourceStats } from '../events/activity.ts';
 import type { SeenIds } from '../events/seen.ts';
 import type { Store } from '../store/store.ts';
 import { AdoClient, adoConfig } from './client.ts';
-import { type AdoPayload, OPEN_STATES, parsePayload } from './events.ts';
+import { type AdoPayload, mentionIds, OPEN_STATES, parsePayload } from './events.ts';
 import { BugIntake } from './intake.ts';
 
 /**
@@ -20,11 +20,18 @@ export const adoHookSecret = () => process.env.ADO_HOOK_SECRET || loadOrCreateSe
  * ADO reaches it through a tunnel; the service hook authenticates with basic
  * auth whose password is `secret`. catchUp() runs one query instead of polling.
  */
-export async function adoReceiver(o: { store: Store; secret: string; myApps: string[]; seen: SeenIds; activity: ActivityLog; statsFile: string }): Promise<Receiver> {
+export async function adoReceiver(o: {
+  store: Store;
+  secret: string;
+  seen: SeenIds;
+  activity: ActivityLog;
+  statsFile: string;
+  isIgnored: (bugId: number) => boolean;
+}): Promise<Receiver> {
   const ado = new AdoClient(adoConfig());
   const me = await ado.me();
-  const intake = new BugIntake({ store: o.store, me, myApps: o.myApps, bugUrl: ado.bugUrl });
-  log(`ado: ${me.email}, ${me.groupIds.length} groups, my apps: ${o.myApps.join(', ') || 'none'}`);
+  const intake = new BugIntake({ store: o.store, me, isIgnored: o.isIgnored, bugUrl: ado.bugUrl });
+  log(`ado: ${me.email} — bugs assigned to me or mentioning me by name`);
   const stats = new SourceStats(o.statsFile);
 
   const authorised = (req: Request) => {
@@ -60,21 +67,24 @@ export async function adoReceiver(o: { store: Store; secret: string; myApps: str
       }
     },
 
-    /** Open bugs assigned to me, mentioning me, or new in my apps this week. */
+    /**
+     * Open bugs assigned to me, plus bugs where a comment mentions me by name.
+     * @RecentMentions also returns group mentions, so each hit's comments are
+     * checked for my own identity.
+     */
     async catchUp() {
       const open = OPEN_STATES.map((s) => `'${s}'`).join(',');
       const base = `SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Bug' AND [System.State] IN (${open})`;
-      const sets: Array<[string, string]> = [
-        ['assigned', `${base} AND [System.AssignedTo] = @Me`],
-        ['mentioned', `${base} AND [System.Id] IN (@RecentMentions)`],
-      ];
-      if (o.myApps.length) {
-        const apps = o.myApps.map((a) => `'${a.replace(/'/g, "''")}'`).join(',');
-        sets.push(['my-area', `${base} AND [Custom.Application] IN (${apps}) AND [System.CreatedDate] >= @Today - 7`]);
+      const assigned = await ado.wiql(`${base} AND [System.AssignedTo] = @Me`);
+      const mentioned: number[] = [];
+      for (const id of await ado.wiql(`${base} AND [System.Id] IN (@RecentMentions)`)) {
+        if (assigned.includes(id)) continue;
+        const named = (await ado.comments(id)).some((html) => mentionIds(html).includes(me.identityId));
+        if (named) mentioned.push(id);
       }
       let created = 0;
-      for (const [reason, query] of sets) {
-        for (const bug of await ado.bugs(await ado.wiql(query))) {
+      for (const [reason, ids] of [['assigned', assigned], ['mentioned', mentioned]] as const) {
+        for (const bug of await ado.bugs([...ids])) {
           const out = await intake.track(bug, reason);
           if (out.action === 'created') {
             created++;
@@ -89,7 +99,7 @@ export async function adoReceiver(o: { store: Store; secret: string; myApps: str
     },
 
     async status() {
-      return { account: me.email, groups: me.groupIds.length, myApps: o.myApps, ...stats.toJSON() };
+      return { account: me.email, ...stats.toJSON() };
     },
   };
 }

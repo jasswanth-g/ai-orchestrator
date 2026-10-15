@@ -8,6 +8,41 @@ import type { SeenIds } from '../events/seen.ts';
 import type { Store } from '../store/store.ts';
 import { type WaMessage, WhatsAppIntake } from './intake.ts';
 
+export interface WaChat {
+  jid: string;
+  name: string;
+  isGroup: boolean;
+  lastMessageAt?: string;
+  messages30d: number;
+}
+
+/** Chats the bridge knows, busiest recent first — for the dashboard's chat picker. */
+export function listChats(storeDir: string): WaChat[] {
+  const file = join(storeDir, 'messages.db');
+  if (!existsSync(file)) return [];
+  const db = new Database(file, { readonly: true });
+  try {
+    const since = new Date(Date.now() - 30 * 86_400_000);
+    const counts = new Map<string, number>();
+    for (const r of db.query<{ chat_jid: string; timestamp: string }, []>('SELECT chat_jid, timestamp FROM messages').all()) {
+      if (new Date(r.timestamp.replace(' ', 'T')) > since) counts.set(r.chat_jid, (counts.get(r.chat_jid) ?? 0) + 1);
+    }
+    return db
+      .query<{ jid: string; name: string | null; last_message_time: string | null }, []>('SELECT jid, name, last_message_time FROM chats')
+      .all()
+      .map((c) => ({
+        jid: c.jid,
+        name: c.name || c.jid.split('@')[0]!,
+        isGroup: c.jid.endsWith('@g.us'),
+        lastMessageAt: c.last_message_time ? new Date(c.last_message_time.replace(' ', 'T')).toISOString() : undefined,
+        messages30d: counts.get(c.jid) ?? 0,
+      }))
+      .sort((a, b) => (b.lastMessageAt ?? '').localeCompare(a.lastMessageAt ?? ''));
+  } finally {
+    db.close();
+  }
+}
+
 /**
  * Live messages from the WhatsApp bridge (bridges/whatsapp/forward.go) →
  * todo-brain tasks (intake.ts). catchUp() replays the bridge's messages.db
@@ -18,8 +53,8 @@ export function whatsappReceiver(o: {
   secret: string;
   /** Bridge store dir holding messages.db and whatsapp.db. */
   storeDir: string;
-  watch: string[];
-  keywords: string[];
+  /** Watched chats and keywords, read per message (dashboard settings). */
+  settings: () => { watch: string[]; keywords: string[] };
   seen: SeenIds;
   checkpointFile: string;
   activity: ActivityLog;
@@ -28,9 +63,15 @@ export function whatsappReceiver(o: {
   statsFile: string;
 }): Receiver {
   const stats = new SourceStats(o.statsFile);
-  const intake = new WhatsAppIntake({ store: o.store, keywords: o.keywords });
+  /** Watch entries are JIDs; show names where the bridge knows them. */
+  const chatName = (entry: string) => (entry.includes('@') ? (listChats(o.storeDir).find((c) => c.jid === entry)?.name ?? entry) : entry);
+  const intake = new WhatsAppIntake({ store: o.store, keywords: () => o.settings().keywords });
   let checkpoint = existsSync(o.checkpointFile) ? readFileSync(o.checkpointFile, 'utf8').trim() : '';
-  const watched = (m: WaMessage) => !o.watch.length || o.watch.includes(m.chat_jid) || o.watch.includes(m.chat_name);
+  // Nothing selected = nothing watched: every chat would sweep in personal 1:1s.
+  const watched = (m: WaMessage) => {
+    const { watch } = o.settings();
+    return watch.includes(m.chat_jid) || (!!m.chat_name && watch.includes(m.chat_name));
+  };
 
   async function processMessage(m: WaMessage, via: string) {
     if (o.seen.has(m.id)) return;
@@ -115,7 +156,8 @@ export function whatsappReceiver(o: {
     },
 
     async status() {
-      return { watch: o.watch, keywords: o.keywords, checkpoint: checkpoint || undefined, ...stats.toJSON(), skipped: o.skipped.recent(100) };
+      const { watch, keywords } = o.settings();
+      return { watch: watch.map(chatName), keywords, checkpoint: checkpoint || undefined, ...stats.toJSON(), skipped: o.skipped.recent(100) };
     },
   };
 }
