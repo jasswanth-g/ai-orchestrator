@@ -82,3 +82,12 @@ test('SeenIds remembers across instances and trims the oldest', () => {
   const again = new SeenIds(file, 2);
   expect([again.has('a'), again.has('b'), again.has('c')]).toEqual([false, true, true]);
 });
+
+test('ActivityLog keeps the newest entries across restarts', async () => {
+  const { ActivityLog } = await import('../src/events/activity.ts');
+  const file = `${process.env.TMPDIR ?? '/tmp'}/activity-${Date.now()}.jsonl`;
+  const log = new ActivityLog(file, 3);
+  for (const n of [1, 2, 3, 4]) log.add({ source: 'ado', kind: 'test', subject: `Bug ${n}`, action: 'created', reason: 'r' });
+  expect(log.recent().map((a) => a.subject)).toEqual(['Bug 4', 'Bug 3', 'Bug 2']);
+  expect(new ActivityLog(file, 3).recent(2).map((a) => a.subject)).toEqual(['Bug 4', 'Bug 3']);
+});

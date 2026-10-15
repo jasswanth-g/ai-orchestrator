@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 import { dirname, join } from 'node:path';
 import { adoReceiver } from './ado/receiver.ts';
+import { agentsDashboard } from './agents-dashboard/routes.ts';
 import { dbPath, log, pickStore } from './config.ts';
+import { ActivityLog } from './events/activity.ts';
 import { errText, type Receiver } from './events/receiver.ts';
 import { SeenIds } from './events/seen.ts';
 import { resolvePath } from './tools/files.ts';
@@ -15,6 +17,7 @@ import { whatsappUi } from './whatsapp/ui.ts';
  *
  *   /hooks/ado        Azure DevOps service hooks (via a tunnel)   — on when ADO_HOOK_SECRET is set
  *   /hooks/whatsapp   bridges/whatsapp, spawned here              — off with WHATSAPP_BRIDGE=off
+ *   /                 agents dashboard: sources, agent tasks, activity feed
  *   /whatsapp         connection page: status, pairing QR, unlink
  *
  * Env: AGENTS_PORT (4320), ADO_HOOK_SECRET, ADO_MY_APPS, WHATSAPP_WATCH_CHATS,
@@ -26,11 +29,12 @@ const list = (v?: string) => (v ?? '').split(',').map((s) => s.trim()).filter(Bo
 const stateDir = dirname(dbPath);
 const store = pickStore();
 const receivers: Receiver[] = [];
+const activity = new ActivityLog(join(stateDir, 'agents-activity.jsonl'));
 
 const adoSecret = process.env.ADO_HOOK_SECRET;
 if (adoSecret) {
   receivers.push(
-    await adoReceiver({ store, secret: adoSecret, myApps: list(process.env.ADO_MY_APPS), seen: new SeenIds(join(stateDir, 'ado-events-seen.json')) }),
+    await adoReceiver({ store, secret: adoSecret, myApps: list(process.env.ADO_MY_APPS), seen: new SeenIds(join(stateDir, 'ado-events-seen.json')), activity }),
   );
 } else log('ado: off (ADO_HOOK_SECRET not set)');
 
@@ -50,6 +54,7 @@ if (bridgeOn) {
       keywords: list(process.env.WHATSAPP_KEYWORDS),
       seen: new SeenIds(join(stateDir, 'whatsapp-seen.json')),
       checkpointFile: join(stateDir, 'whatsapp-checkpoint.txt'),
+      activity,
     }),
   );
 } else log('whatsapp: off (WHATSAPP_BRIDGE=off)');
@@ -58,13 +63,22 @@ const bridge = bridgeOn
   ? new BridgeSupervisor({ storeDir: waStoreDir, eventUrl: `http://127.0.0.1:${port}/hooks/whatsapp`, secret: waSecret, watch: waWatch })
   : undefined;
 const whatsappPage = whatsappUi({ bridge, watch: waWatch, port });
+const dashboard = agentsDashboard({
+  port,
+  store,
+  receivers,
+  activity,
+  bridge,
+  adoEnabled: !!adoSecret,
+  todoDashboardUrl: `http://127.0.0.1:${process.env.TODO_BRAIN_DASHBOARD_PORT ?? 4319}`,
+});
 
 Bun.serve({
   hostname: '127.0.0.1',
   port,
   async fetch(req) {
     const url = new URL(req.url);
-    const ui = await whatsappPage(req);
+    const ui = (await dashboard(req)) ?? (await whatsappPage(req));
     if (ui) return ui;
     if (url.pathname === '/health') return Response.json({ ok: true, receivers: receivers.map((r) => r.name) });
     const r = receivers.find((x) => x.path === url.pathname);
@@ -73,7 +87,7 @@ Bun.serve({
   },
 });
 log(`agents listening on http://127.0.0.1:${port} — ${receivers.map((r) => r.path).join(', ') || 'no receivers'}`);
-if (bridge) log(`WhatsApp connection page: http://127.0.0.1:${port}/whatsapp`);
+log(`agents dashboard: http://127.0.0.1:${port}/${bridge ? ` · WhatsApp connection: http://127.0.0.1:${port}/whatsapp` : ''}`);
 
 for (const r of receivers) await r.catchUp().catch((err) => log(`${r.name} catch-up failed: ${errText(err)}`));
 

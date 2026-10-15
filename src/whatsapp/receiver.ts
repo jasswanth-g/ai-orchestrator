@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { log } from '../config.ts';
 import { errText, type Receiver, sameSecret } from '../events/receiver.ts';
+import { type ActivityLog, SourceStats } from '../events/activity.ts';
 import type { SeenIds } from '../events/seen.ts';
 import type { Store } from '../store/store.ts';
 import { type WaMessage, WhatsAppIntake } from './intake.ts';
@@ -21,7 +22,9 @@ export function whatsappReceiver(o: {
   keywords: string[];
   seen: SeenIds;
   checkpointFile: string;
+  activity: ActivityLog;
 }): Receiver {
+  const stats = new SourceStats();
   const intake = new WhatsAppIntake({ store: o.store, keywords: o.keywords });
   let checkpoint = existsSync(o.checkpointFile) ? readFileSync(o.checkpointFile, 'utf8').trim() : '';
   const watched = (m: WaMessage) => !o.watch.length || o.watch.includes(m.chat_jid) || o.watch.includes(m.chat_name);
@@ -30,7 +33,12 @@ export function whatsappReceiver(o: {
     if (o.seen.has(m.id)) return;
     if (watched(m)) {
       const out = await intake.handle(m);
-      if (out.action !== 'ignored') log(`whatsapp ${via} ${m.chat_name}: ${out.action} (${out.reason}) task ${out.taskId}`);
+      stats.record(out.action);
+      // Ignored chatter is only counted; the feed would drown in it.
+      if (out.action !== 'ignored') {
+        log(`whatsapp ${via} ${m.chat_name}: ${out.action} (${out.reason}) task ${out.taskId}`);
+        o.activity.add({ source: 'whatsapp', kind: via, subject: m.chat_name || m.chat_jid, action: out.action, reason: out.reason, taskId: out.taskId });
+      }
     }
     o.seen.add(m.id);
     if (m.timestamp > checkpoint) writeFileSync(o.checkpointFile, (checkpoint = m.timestamp));
@@ -49,6 +57,8 @@ export function whatsappReceiver(o: {
         return new Response('ok');
       } catch (err) {
         log(`whatsapp failed on ${m.id}: ${errText(err)}`);
+        stats.record('error');
+        o.activity.add({ source: 'whatsapp', kind: 'live', subject: m.chat_name || m.chat_jid, action: 'error', reason: errText(err) });
         return new Response('error', { status: 500 });
       }
     },
@@ -93,6 +103,11 @@ export function whatsappReceiver(o: {
         );
       }
       log(`whatsapp catch-up done: ${rows.length} message(s) since ${since.toISOString()}`);
+      stats.caughtUp(`${rows.length} message(s) replayed`);
+    },
+
+    async status() {
+      return { watch: o.watch, keywords: o.keywords, checkpoint: checkpoint || undefined, ...stats };
     },
   };
 }

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agents Dashboard</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5d6673; --line: #e3e6ea; --soft: #f0f2f5;
+    --ok: #1a7f4b; --ok-bg: #e5f5ec; --warn: #9a6200; --warn-bg: #fdf3e1; --bad: #b42318; --bad-bg: #fdecea;
+    --info: #1f5fbf; --info-bg: #e7effc; --idle: #5d6673; --idle-bg: #eceef1; --accent: #1f6feb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --card: #171b21; --text: #e6e9ed; --muted: #9aa4b1; --line: #2a3038; --soft: #1d222a;
+      --ok: #4ccf8a; --ok-bg: #12301f; --warn: #f0b44c; --warn-bg: #33270f; --bad: #ff7a6e; --bad-bg: #3a1714;
+      --info: #7fb0ff; --info-bg: #142540; --idle: #9aa4b1; --idle-bg: #242a33; --accent: #4b8df8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 28px auto 48px; padding: 0 16px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  .muted { color: var(--muted); }
+  .links { display: flex; gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 16px; }
+  .pipeline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-bottom: 16px; }
+  .stage { padding: 12px 16px; border: 1px solid var(--line); background: var(--card); }
+  .stage:first-child { border-radius: 12px 0 0 12px; }
+  .stage:last-child { border-radius: 0 12px 12px 0; }
+  .stage + .stage { border-left: none; }
+  .stage b { display: block; }
+  @media (max-width: 640px) {
+    .pipeline { grid-template-columns: 1fr; }
+    .stage:first-child { border-radius: 12px 12px 0 0; }
+    .stage:last-child { border-radius: 0 0 12px 12px; }
+    .stage + .stage { border-left: 1px solid var(--line); border-top: none; }
+  }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: 12px; white-space: nowrap; }
+  .dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .ok { color: var(--ok); background: var(--ok-bg); }
+  .warn { color: var(--warn); background: var(--warn-bg); }
+  .bad { color: var(--bad); background: var(--bad-bg); }
+  .info { color: var(--info); background: var(--info-bg); }
+  .idle { color: var(--idle); background: var(--idle-bg); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 12px 0 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  .counts { display: flex; gap: 18px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .counts div { display: flex; flex-direction: column; }
+  .counts b { font-size: 18px; font-variant-numeric: tabular-nums; }
+  .counts span { color: var(--muted); font-size: 12px; }
+  .section { margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .tags { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tag { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; }
+  .tag.hot { background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .filters button { font: inherit; font-size: 12px; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 999px; padding: 3px 12px; cursor: pointer; }
+  .filters button[aria-pressed="true"] { background: var(--text); color: var(--card); border-color: var(--text); }
+  .empty { color: var(--muted); padding: 12px 0; }
+  .when { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Agents</h1>
+      <span id="updated" class="muted">Loading…</span>
+    </div>
+    <nav class="links">
+      <a href="/whatsapp">WhatsApp connection</a>
+      <a id="todoLink" href="#">Tasks board</a>
+    </nav>
+  </header>
+
+  <div class="pipeline">
+    <div class="stage"><div class="row"><b>Messenger</b><span id="messengerPill" class="pill dot idle">—</span></div><span class="muted">Turns bug events and WhatsApp messages into tasks (rules)</span></div>
+    <div class="stage"><div class="row"><b>Investigator</b><span class="pill idle">Not built</span></div><span class="muted">Root cause + fix report for <code>to-investigate</code> bugs</span></div>
+    <div class="stage"><div class="row"><b>Developer</b><span class="pill idle">Not built</span></div><span class="muted">Implements approved reports locally</span></div>
+  </div>
+
+  <div class="grid">
+    <section class="card" id="adoCard">
+      <div class="row"><h2>Azure DevOps</h2><span id="adoPill" class="pill dot idle">—</span></div>
+      <p id="adoHint" class="muted" hidden></p>
+      <dl id="adoFacts"></dl>
+      <div class="counts" id="adoCounts"></div>
+    </section>
+    <section class="card" id="waCard">
+      <div class="row"><h2>WhatsApp</h2><span id="waPill" class="pill dot idle">—</span></div>
+      <dl id="waFacts"></dl>
+      <div class="counts" id="waCounts"></div>
+    </section>
+  </div>
+
+  <section class="card section">
+    <div class="row"><h2>Agent tasks <span id="taskCount" class="muted"></span></h2></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Task</th><th>Source</th><th>Flags</th><th>Created</th></tr></thead>
+      <tbody id="tasks"></tbody>
+    </table></div>
+    <div id="tasksEmpty" class="empty" hidden>No open tasks from the agents.</div>
+  </section>
+
+  <section class="card section">
+    <div class="row" style="flex-wrap: wrap; margin-bottom: 8px;">
+      <h2 style="margin:0">Activity</h2>
+      <div class="filters" id="actionFilters"></div>
+    </div>
+    <div class="filters" id="sourceFilters" style="margin-bottom: 8px;"></div>
+    <div class="scroll"><table>
+      <thead><tr><th>When</th><th>Source</th><th>About</th><th>Result</th><th>Why</th></tr></thead>
+      <tbody id="activity"></tbody>
+    </table></div>
+    <div id="activityEmpty" class="empty" hidden>Nothing yet.</div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, ...children) => {
+  const n = Object.assign(document.createElement(tag), props);
+  n.append(...children.filter((c) => c != null));
+  return n;
+};
+const pill = (node, tone, text) => { node.className = `pill dot ${tone}`; node.textContent = text; };
+
+function ago(iso) {
+  if (!iso) return '—';
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return `${Math.round(s)}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+
+function facts(node, pairs) {
+  node.replaceChildren(...pairs.filter(([, v]) => v != null && v !== '').flatMap(([k, v]) => [el('dt', { textContent: k }), el('dd', { textContent: v })]));
+}
+
+function counts(node, c) {
+  if (!c) return node.replaceChildren();
+  const items = [['created', 'tasks created'], ['annotated', 'notes added'], ['reopened', 'reopened'], ['ignored', 'ignored'], ['error', 'errors']];
+  node.replaceChildren(...items.filter(([k]) => k !== 'reopened' || c[k]).map(([k, label]) => el('div', {}, el('b', { textContent: c[k] ?? 0 }), el('span', { textContent: label }))));
+}
+
+const LINK = {
+  connected: ['ok', 'Connected'], pairing: ['warn', 'Waiting for scan'], qr_expired: ['bad', 'QR expired'],
+  connecting: ['warn', 'Connecting'], starting: ['warn', 'Starting'], logged_out: ['bad', 'Unlinked'],
+  bridge_down: ['bad', 'Bridge down'], down: ['bad', 'Bridge restarting'], other_bridge: ['bad', 'Other bridge running'],
+  build_failed: ['bad', 'Build failed'], off: ['idle', 'Off'], error: ['bad', 'Error'],
+};
+
+function renderSources(s) {
+  const ado = s.ado;
+  pill($('adoPill'), ado.enabled ? 'ok' : 'idle', ado.enabled ? 'Listening' : 'Off');
+  $('adoHint').hidden = !ado.hint;
+  $('adoHint').textContent = ado.hint ?? '';
+  facts($('adoFacts'), ado.enabled ? [
+    ['Account', ado.account],
+    ['Groups', ado.groups != null ? `${ado.groups} (group @mentions count)` : null],
+    ['My apps', ado.myApps?.length ? ado.myApps.join(', ') : 'none set'],
+    ['Last event', ago(ado.lastEventAt)],
+    ['Catch-up', ado.lastCatchUp ? `${ado.lastCatchUp.summary}, ${ago(ado.lastCatchUp.at)}` : 'running…'],
+  ] : []);
+  counts($('adoCounts'), ado.enabled ? ado.counts : null);
+
+  const wa = s.whatsapp;
+  const [tone, label] = LINK[wa.link?.state] ?? ['warn', wa.link?.state ?? '—'];
+  pill($('waPill'), tone, label);
+  facts($('waFacts'), wa.enabled ? [
+    ['Account', wa.link?.pushName ? `${wa.link.pushName}${wa.link.account ? ` (+${wa.link.account})` : ''}` : null],
+    ['Watching', wa.watch?.length ? wa.watch.join(', ') : 'every chat (set WHATSAPP_WATCH_CHATS)'],
+    ['Keywords', wa.keywords?.length ? wa.keywords.join(', ') : 'none'],
+    ['Last message', ago(wa.lastEventAt)],
+    ['Catch-up', wa.lastCatchUp ? `${wa.lastCatchUp.summary}, ${ago(wa.lastCatchUp.at)}` : 'running…'],
+  ] : [['Status', 'Started with WHATSAPP_BRIDGE=off']]);
+  counts($('waCounts'), wa.enabled ? wa.counts : null);
+
+  const live = [ado.enabled, wa.enabled && wa.link?.state === 'connected'].filter(Boolean).length;
+  pill($('messengerPill'), live ? 'ok' : 'warn', live ? `Live · ${live} source${live > 1 ? 's' : ''}` : 'No live source');
+}
+
+const HOT = new Set(['to-investigate', 'needs-reply', 'new-comment']);
+const HIDE = (l) => l === 'bug' || l === 'whatsapp' || l.startsWith('wa-') || l.startsWith('ado-');
+
+function renderTasks(tasks) {
+  $('taskCount').textContent = tasks.length ? `(${tasks.length})` : '';
+  $('tasksEmpty').hidden = tasks.length > 0;
+  $('tasks').replaceChildren(...tasks.map((t) => el('tr', {},
+    el('td', {}, t.link ? el('a', { href: t.link, target: '_blank', rel: 'noopener', textContent: t.title }) : t.title, el('div', { className: 'muted', textContent: `#${t.id} · P${t.priority}${t.status && t.status !== 'todo' ? ` · ${t.status}` : ''}` })),
+    el('td', {}, el('span', { className: `pill ${t.source === 'whatsapp' ? 'ok' : 'info'}`, textContent: t.source === 'whatsapp' ? 'WhatsApp' : 'Azure DevOps' })),
+    el('td', {}, el('div', { className: 'tags' }, ...t.labels.filter((l) => !HIDE(l)).sort((a, b) => HOT.has(b) - HOT.has(a)).map((l) => el('span', { className: `tag${HOT.has(l) ? ' hot' : ''}`, textContent: l })))),
+    el('td', { className: 'when', textContent: ago(t.createdAt) }),
+  )));
+}
+
+const ACTIONS = { all: 'All', created: 'Created', annotated: 'Notes', reopened: 'Reopened', ignored: 'Ignored', error: 'Errors' };
+const SOURCES = { all: 'All sources', ado: 'Azure DevOps', whatsapp: 'WhatsApp' };
+const TONE = { created: 'ok', annotated: 'info', reopened: 'warn', ignored: 'idle', error: 'bad' };
+let filter = { action: 'all', source: 'all' };
+let last;
+
+function filterButtons(node, options, key) {
+  node.replaceChildren(...Object.entries(options).map(([value, label]) => {
+    const b = el('button', { type: 'button', textContent: label });
+    b.setAttribute('aria-pressed', String(filter[key] === value));
+    b.onclick = () => { filter[key] = value; render(last); };
+    return b;
+  }));
+}
+
+function renderActivity(items) {
+  filterButtons($('actionFilters'), ACTIONS, 'action');
+  filterButtons($('sourceFilters'), SOURCES, 'source');
+  const shown = items.filter((a) => (filter.action === 'all' || a.action === filter.action) && (filter.source === 'all' || a.source === filter.source));
+  $('activityEmpty').hidden = shown.length > 0;
+  $('activity').replaceChildren(...shown.map((a) => el('tr', {},
+    el('td', { className: 'when', textContent: ago(a.at), title: new Date(a.at).toLocaleString() }),
+    el('td', { textContent: SOURCES[a.source] ?? a.source }),
+    el('td', {}, a.link ? el('a', { href: a.link, target: '_blank', rel: 'noopener', textContent: a.subject }) : a.subject, el('div', { className: 'muted', textContent: a.kind })),
+    el('td', {}, el('span', { className: `pill ${TONE[a.action] ?? 'idle'}`, textContent: ACTIONS[a.action] ?? a.action }), a.taskId ? el('div', { className: 'muted', textContent: `task #${a.taskId}` }) : null),
+    el('td', { textContent: a.reason }),
+  )));
+}
+
+function render(d) {
+  if (!d) return;
+  last = d;
+  $('todoLink').href = d.todoDashboardUrl;
+  renderSources(d.sources);
+  renderTasks(d.tasks);
+  renderActivity(d.activity);
+  $('updated').textContent = `Updated ${new Date(d.now).toLocaleTimeString()}`;
+}
+
+async function refresh() {
+  try {
+    render(await (await fetch('/api/overview', { cache: 'no-store' })).json());
+  } catch {
+    $('updated').textContent = 'Agents server not reachable — retrying…';
+  }
+}
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

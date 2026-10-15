@@ -126,6 +126,12 @@ bun run ado-hooks create https://<public-host>      # one-time, after the tunnel
 | `WHATSAPP_KEYWORDS` | Words that make a group message "for me" |
 | `WHATSAPP_STORE_DIR` | Bridge session + `messages.db`; default the whatsapp-mcp store, so the WhatsApp MCP server keeps reading the same data |
 
+**Dashboard:** `http://127.0.0.1:4320/` — each source's status (ADO account and
+last catch-up, WhatsApp link state), counts of tasks created / notes / ignored /
+errors since start, the open tasks the agents created, and an activity feed
+(kept in `agents-activity.jsonl` next to the todo-brain DB, last 500 entries).
+Ignored WhatsApp chatter is counted, not listed.
+
 ### Azure DevOps bugs
 
 | Event | Task |

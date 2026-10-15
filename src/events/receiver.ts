@@ -7,6 +7,8 @@ export interface Receiver {
   handle(req: Request): Promise<Response>;
   /** Picks up whatever happened while the server was down. */
   catchUp(): Promise<void>;
+  /** For the dashboard's source card. */
+  status(): Promise<Record<string, unknown>>;
 }
 
 export function sameSecret(given: string, expected: string): boolean {

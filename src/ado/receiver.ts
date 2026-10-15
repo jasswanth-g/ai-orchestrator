@@ -1,5 +1,6 @@
 import { log } from '../config.ts';
 import { errText, type Receiver, sameSecret } from '../events/receiver.ts';
+import { type ActivityLog, SourceStats } from '../events/activity.ts';
 import type { SeenIds } from '../events/seen.ts';
 import type { Store } from '../store/store.ts';
 import { AdoClient, adoConfig } from './client.ts';
@@ -11,11 +12,12 @@ import { BugIntake } from './intake.ts';
  * ADO reaches it through a tunnel; the service hook authenticates with basic
  * auth whose password is `secret`. catchUp() runs one query instead of polling.
  */
-export async function adoReceiver(o: { store: Store; secret: string; myApps: string[]; seen: SeenIds }): Promise<Receiver> {
+export async function adoReceiver(o: { store: Store; secret: string; myApps: string[]; seen: SeenIds; activity: ActivityLog }): Promise<Receiver> {
   const ado = new AdoClient(adoConfig());
   const me = await ado.me();
   const intake = new BugIntake({ store: o.store, me, myApps: o.myApps, bugUrl: ado.bugUrl });
   log(`ado: ${me.email}, ${me.groupIds.length} groups, my apps: ${o.myApps.join(', ') || 'none'}`);
+  const stats = new SourceStats();
 
   const authorised = (req: Request) => {
     const m = /^Basic (.+)$/.exec(req.headers.get('authorization') ?? '');
@@ -36,12 +38,16 @@ export async function adoReceiver(o: { store: Store; secret: string; myApps: str
         for (const event of parsePayload(payload)) {
           const out = await intake.handle(event);
           log(`ado ${payload.eventType} Bug ${out.bug}: ${out.action} (${out.reason})${out.taskId ? ` task ${out.taskId}` : ''}`);
+          stats.record(out.action);
+          o.activity.add({ source: 'ado', kind: payload.eventType ?? 'event', subject: `Bug ${out.bug}`, action: out.action, reason: out.reason, taskId: out.taskId, link: ado.bugUrl(out.bug) });
         }
         if (payload.id) o.seen.add(payload.id);
         return new Response('ok');
       } catch (err) {
         // A 5xx makes ADO retry the delivery.
         log(`ado failed on ${payload.eventType} ${payload.id}: ${errText(err)}`);
+        stats.record('error');
+        o.activity.add({ source: 'ado', kind: payload.eventType ?? 'event', subject: `Bug ${payload.resource?.workItemId ?? payload.resource?.id ?? '?'}`, action: 'error', reason: errText(err) });
         return new Response('error', { status: 500 });
       }
     },
@@ -65,10 +71,16 @@ export async function adoReceiver(o: { store: Store; secret: string; myApps: str
           if (out.action === 'created') {
             created++;
             log(`ado catch-up: Bug ${bug.id} → task ${out.taskId} (${reason})`);
+            o.activity.add({ source: 'ado', kind: 'catch-up', subject: `Bug ${bug.id}`, action: 'created', reason, taskId: out.taskId, link: ado.bugUrl(bug.id) });
           }
         }
       }
       log(`ado catch-up done: ${created} new task(s)`);
+      stats.caughtUp(`${created} new task(s)`);
+    },
+
+    async status() {
+      return { account: me.email, groups: me.groupIds.length, myApps: o.myApps, ...stats };
     },
   };
 }
