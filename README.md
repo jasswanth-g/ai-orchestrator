@@ -10,7 +10,7 @@ Outlook / WhatsApp / Teams MCP ─┐
                      you ───────┘                                    (interface)  local SQLite (default) or Todoist
 ```
 
-## Tools (21)
+## Tools (24)
 
 | Area | Tools |
 |---|---|
@@ -22,6 +22,7 @@ Outlook / WhatsApp / Teams MCP ─┐
 | Capture | `capture` (task / question / memory / backlog from any channel, keeps `source` + `link`) |
 | Files | `remember_location`, `where_is` |
 | Overview | `brief` |
+| Reports | `save_report`, `get_report`, `list_reports` — investigation reports, versioned, tagged to the bug and investigation, with your reviews |
 
 ## Setup
 
@@ -121,7 +122,10 @@ bun run ado-hooks create https://<public-host>      # one-time, after the tunnel
 | `WHATSAPP_WATCH_CHATS` / `WHATSAPP_KEYWORDS` | First-run defaults only; after that the dashboard's **Choose chats & keywords** owns them (`agents-settings.json`). Nothing selected = nothing watched |
 | `WHATSAPP_STORE_DIR` | Bridge session + `messages.db`; default the whatsapp-mcp store, so the WhatsApp MCP server keeps reading the same data |
 
-**Dashboard:** `http://127.0.0.1:4320/` — each source's status (ADO account,
+**Dashboard:** `http://127.0.0.1:4320/` — tabs: **Overview** (all agents),
+**Messenger** (`/messenger`: ADO + WhatsApp intake, chat picker, ignored bugs,
+skipped messages) and **Investigator** (`/investigator`: investigations, reports
+and reviews, bugs waiting). It shows each source's status (ADO account,
 last catch-up or start error; WhatsApp link state), counts of tasks created /
 notes / ignored / errors (kept across restarts, with the date counting began),
 the open tasks the agents created with **Replied** / **Mark read** / **Done**, and
@@ -170,3 +174,49 @@ A message is **for me** when it mentions me, replies to me, is a 1:1 chat, or
 contains one of `WHATSAPP_KEYWORDS`. One open task per chat (`wa-<chat>`)
 collects those messages as comments and carries `needs-reply`; my own reply in
 that chat removes it.
+
+## Investigator
+
+Click **Investigate** on a bug task in the dashboard. The agents server gathers
+the bug from Azure DevOps into `BRIEF.md` (repro steps, every comment, the parent
+Story's description and acceptance criteria, the Feature, and your notes), then
+opens a new **iTerm** window running an interactive Claude Code session with
+`prompts/investigator.md` as its instructions. Watch it work and type to it any
+time. It saves its report to **todo-brain** with `save_report` — not to a file:
+every save is a new version tagged to the bug and the investigation, and the
+tool's length limits keep it short (2-3 sentence summary, one requirement line,
+≤6 files, ≤5 before → after changes, ≤4 tests, ≤4 blocking questions). The
+Investigator page shows verdict, summary and fix first, evidence folded away,
+with **Approve**, **Reject** and **Request changes**. Reviews are stored with the
+report; a change request is typed into the open session (or resumes it), which
+reads it with `get_report` and saves a new version. **Terminal** brings the
+window back. Any Claude session can read reports with `get_report` / `list_reports`.
+
+The session's only MCP server is this repo's todo-brain, renamed `reports` and
+limited to the three report tools (`TODO_BRAIN_ONLY`) — so a personal allow rule
+like `mcp__todo-brain` can't hand it `add_task` or anything else.
+
+Each bug's folder is `<state>/investigations/bug-<id>/` (BRIEF.md, settings.json,
+mcp.json, run.sh); the repo knowledge file is
+`<state>/investigator/REPOS.md`, seeded once from each work repo's
+CLAUDE.md/README.md and extended by the Investigator ("Learned") and by you.
+
+**Read-only by construction** (per-session `settings.json`, `dontAsk` mode —
+anything not allowed is refused without prompting):
+
+| Allowed | Refused |
+|---|---|
+| Read/Grep/Glob in the work repos, its folder, REPOS.md | Edit/Write anywhere in the repos (explicit deny) |
+| Edit REPOS.md; the three report tools | Edit in its own folder; any other shell command (`rm`, `touch`, `git checkout`, …) |
+| `cd`, `ls`, `git log/show/blame/diff/grep/ls-files`, `az boards work-item show` | `git … --output`, web fetch/search, every other MCP server and todo-brain tool, your hooks |
+
+Your personal Claude Code allow rules (`~/.claude/settings.json`) still apply in
+these sessions — keep Bash/Edit allow rules out of it, or they reach the Investigator too.
+
+| Env var | Meaning |
+|---|---|
+| `INVESTIGATOR_REPOS` | Folder with the git clones, default `~/Documents/GitHub` |
+| `INVESTIGATOR_REPO_REMOTE` | Only clones whose origin contains this are work repos, default `dev.azure.com/xavica` |
+
+ONDC protocol knowledge: not wired yet — the report lists protocol questions it
+can't confirm as open questions.

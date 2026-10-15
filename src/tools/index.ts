@@ -6,6 +6,7 @@ import { fileTools } from './files.ts';
 import { memoryTools } from './memory.ts';
 import { planTools } from './plan.ts';
 import { questionTools } from './questions.ts';
+import { reportTools } from './reports.ts';
 import { taskTools } from './tasks.ts';
 
 /** Every tool the server exposes. Add a group here and it's registered. */
@@ -18,4 +19,5 @@ export const ALL_TOOLS: ToolDef[] = [
   ...captureTools,
   ...fileTools,
   ...briefTools,
+  ...reportTools,
 ] as ToolDef[];

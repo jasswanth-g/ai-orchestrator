@@ -61,6 +61,22 @@ export class AdoClient {
     return { email, identityId: self.id.toLowerCase() };
   }
 
+  /** One work item with every field and its links (parent, related, attachments). */
+  async workItem(id: number): Promise<{ id: number; fields: Record<string, any>; relations: Array<{ rel: string; url: string; attributes?: Record<string, any> }> }> {
+    const r = await this.call<{ id: number; fields: Record<string, any>; relations?: Array<{ rel: string; url: string; attributes?: Record<string, any> }> }>(
+      `${this.cfg.org}/_apis/wit/workitems/${id}?$expand=relations&${API}`,
+    );
+    return { id: r.id, fields: r.fields, relations: r.relations ?? [] };
+  }
+
+  /** Comments with author and date, oldest first (first 200). */
+  async commentThread(id: number): Promise<Array<{ by: string; at: string; html: string }>> {
+    const r = await this.call<{ comments: Array<{ text: string; createdDate: string; createdBy: { displayName: string } }> }>(
+      `${this.projectUrl}/_apis/wit/workItems/${id}/comments?api-version=7.0-preview.3&$top=200&order=asc`,
+    );
+    return r.comments.map((c) => ({ by: c.createdBy.displayName, at: c.createdDate, html: c.text }));
+  }
+
   /** Comment HTML on a work item, oldest first (first 200). */
   async comments(id: number): Promise<string[]> {
     const r = await this.call<{ comments: Array<{ text: string }> }>(

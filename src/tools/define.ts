@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ReportsDb } from '../store/reports.ts';
 import type { Store } from '../store/store.ts';
 import { formatEstimate, parseEstimate } from '../estimate.ts';
 import type { Item } from '../types.ts';
@@ -12,6 +13,8 @@ export interface ToolContext {
   today: () => string;
   /** Existence check for remembered paths — injectable for tests. */
   exists: (path: string) => boolean;
+  /** Investigation reports (SQLite, beside the items). */
+  reports?: ReportsDb;
 }
 
 export interface ToolDef<S extends z.ZodRawShape = z.ZodRawShape> {

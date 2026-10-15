@@ -34,6 +34,9 @@ export function pickStore(): Store {
   return new SqliteStore({ path: dbPath });
 }
 
+/** Reports always live in SQLite: the DB file, or memory on a dry run. */
+export const reportsPath = () => (dryRun ? ':memory:' : dbPath);
+
 export const localToday = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

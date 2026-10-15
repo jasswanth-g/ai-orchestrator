@@ -111,3 +111,16 @@ describe('dashboard task actions', () => {
     expect(settings.whatsapp.watch).toEqual(['1@g.us', '2@g.us']);
   });
 });
+
+test('each agent page is served', async () => {
+  const { agentsDashboard } = await import('../src/agents-dashboard/routes.ts');
+  const { Settings, BugNotes } = await import('../src/agents-settings.ts');
+  const t = (n: string) => `${process.env.TMPDIR ?? '/tmp'}/${n}-${Date.now()}`;
+  const handle = agentsDashboard({ port: 4320, store: new InMemoryStore(), receivers: [], activity: new ActivityLog(t('a')), adoOn: true, settings: new Settings(t('s'), { watch: [], keywords: [] }), bugNotes: new BugNotes(t('n')), todoDashboardUrl: '' });
+  for (const path of ['/', '/messenger', '/investigator']) {
+    const res = await handle(new Request(`http://127.0.0.1:4320${path}`, { headers: { host: '127.0.0.1:4320' } }));
+    expect(res?.status).toBe(200);
+    expect(res?.headers.get('content-type')).toContain('text/html');
+  }
+  expect(await handle(new Request('http://127.0.0.1:4320/other', { headers: { host: '127.0.0.1:4320' } }))).toBeUndefined();
+});

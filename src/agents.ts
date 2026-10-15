@@ -1,9 +1,12 @@
 #!/usr/bin/env bun
 import { dirname, join } from 'node:path';
+import { AdoClient, adoConfig } from './ado/client.ts';
 import { adoHookSecret, adoReceiver } from './ado/receiver.ts';
+import { Investigator } from './investigator/service.ts';
 import { agentsDashboard } from './agents-dashboard/routes.ts';
 import { BugNotes, Settings } from './agents-settings.ts';
-import { dbPath, log, pickStore } from './config.ts';
+import { dbPath, log, pickStore, reportsPath } from './config.ts';
+import { ReportsDb } from './store/reports.ts';
 import { ActivityLog } from './events/activity.ts';
 import { errText, type Receiver } from './events/receiver.ts';
 import { SeenIds } from './events/seen.ts';
@@ -60,6 +63,22 @@ if (adoOn) {
   }
 } else log('ado: off (ADO=off)');
 
+// Investigator: one iTerm + Claude Code session per bug, started from the dashboard.
+const investigator =
+  adoOn && !adoError
+    ? new Investigator({
+        stateDir,
+        reposRoot: resolvePath(process.env.INVESTIGATOR_REPOS ?? '~/Documents/GitHub'),
+        repoRemote: process.env.INVESTIGATOR_REPO_REMOTE ?? 'dev.azure.com/xavica',
+        store,
+        reports: new ReportsDb(reportsPath()),
+        reportsPath: reportsPath(),
+        bugNotes,
+        activity,
+        ado: new AdoClient(adoConfig()),
+      })
+    : undefined;
+
 const bridgeOn = process.env.WHATSAPP_BRIDGE !== 'off';
 const waStoreDir = resolvePath(process.env.WHATSAPP_STORE_DIR ?? '~/Documents/GitHub/whatsapp-mcp/whatsapp-bridge/store');
 // Shared with the bridge and the WhatsApp MCP server via <store>/bridge-secret.
@@ -96,6 +115,7 @@ const dashboard = agentsDashboard({
   adoError,
   settings,
   bugNotes,
+  investigator,
   waStoreDir: bridgeOn ? waStoreDir : undefined,
   todoDashboardUrl: `http://127.0.0.1:${process.env.TODO_BRAIN_DASHBOARD_PORT ?? 4319}`,
 });

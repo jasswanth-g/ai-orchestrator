@@ -96,6 +96,30 @@
   .note button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
   .note-form { margin-top: 8px; display: grid; gap: 6px; }
   .note-form textarea { min-height: 70px; resize: vertical; }
+  .report { background: var(--soft); border-radius: 10px; padding: 14px 16px; }
+  .report h3 { font-size: 13px; margin: 14px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .report h3:first-of-type { margin-top: 10px; }
+  .report p, .report li { margin: 0 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .report ul { margin: 0; padding-left: 18px; }
+  .report code { font-size: 12px; }
+  .change { border: 1px solid var(--line); border-radius: 8px; margin: 6px 0; overflow: hidden; background: var(--card); }
+  .change .path { padding: 4px 10px; font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  .change .ba { display: grid; grid-template-columns: 1fr 1fr; }
+  .change pre { margin: 0; padding: 8px 10px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .change pre.before { background: var(--bad-bg); }
+  .change pre.after { background: var(--ok-bg); }
+  @media (max-width: 640px) { .change .ba { grid-template-columns: 1fr; } }
+  .review { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+  .review textarea { font: inherit; width: 100%; min-height: 70px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); resize: vertical; }
+  pre.md { white-space: pre-wrap; font-size: 13px; margin: 0; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+  .tabs a { padding: 8px 14px; color: var(--muted); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs a:hover { text-decoration: none; color: var(--text); }
+  .tabs a[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
+  .tabs .spacer { flex: 1; }
+  .stage.link { cursor: pointer; }
+  .stage.link:hover { background: var(--soft); }
+  .lead { font-size: 15px; margin: 8px 0 0; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -103,22 +127,26 @@
 <main>
   <header>
     <div>
-      <h1>Agents</h1>
+      <h1 id="pageTitle">Agents</h1>
       <span id="updated" class="muted">Loading…</span>
     </div>
-    <nav class="links">
-      <a href="/whatsapp">WhatsApp connection</a>
-      <a id="todoLink" href="#">Tasks board</a>
-    </nav>
   </header>
+  <nav class="tabs">
+    <a href="/" data-tab="overview">Overview</a>
+    <a href="/messenger" data-tab="messenger">Messenger</a>
+    <a href="/investigator" data-tab="investigator">Investigator</a>
+    <span class="spacer"></span>
+    <a href="/whatsapp">WhatsApp connection</a>
+    <a id="todoLink" href="#">Tasks board</a>
+  </nav>
 
-  <div class="pipeline">
-    <div class="stage"><div class="row"><b>Messenger</b><span id="messengerPill" class="pill dot idle">—</span></div><span class="muted">Turns bug events and WhatsApp messages into tasks (rules)</span></div>
-    <div class="stage"><div class="row"><b>Investigator</b><span class="pill idle">Not built</span></div><span class="muted">Root cause + fix report for <code>to-investigate</code> bugs</span></div>
+  <div class="pipeline" data-views="overview">
+    <div class="stage link" data-go="/messenger"><div class="row"><b>Messenger</b><span id="messengerPill" class="pill dot idle">—</span></div><span class="muted">Turns bug events and WhatsApp messages into tasks (rules)</span></div>
+    <div class="stage link" data-go="/investigator"><div class="row"><b>Investigator</b><span id="invPill" class="pill dot idle">—</span></div><span class="muted">Root cause + fix report per bug, in its own iTerm window</span></div>
     <div class="stage"><div class="row"><b>Developer</b><span class="pill idle">Not built</span></div><span class="muted">Implements approved reports locally</span></div>
   </div>
 
-  <div class="grid">
+  <div class="grid" data-views="overview messenger">
     <section class="card" id="adoCard">
       <div class="row"><h2>Azure DevOps</h2><span id="adoPill" class="pill dot idle">—</span></div>
       <p id="adoHint" class="muted" hidden></p>
@@ -129,7 +157,7 @@
     <section class="card" id="waCard">
       <div class="row"><h2>WhatsApp</h2><span id="waPill" class="pill dot idle">—</span></div>
       <dl id="waFacts"></dl>
-      <div class="toolbar" style="margin-top:10px"><button type="button" class="btn" id="pickChats">Choose chats &amp; keywords</button></div>
+      <div class="toolbar" style="margin-top:10px" data-views="messenger"><button type="button" class="btn" id="pickChats">Choose chats &amp; keywords</button></div>
       <div class="panel" id="picker" hidden>
         <input type="search" id="chatSearch" placeholder="Search chats">
         <div class="toolbar" style="margin-top:8px">
@@ -151,8 +179,17 @@
     </section>
   </div>
 
-  <section class="card section">
-    <div class="row"><h2>Agent tasks <span id="taskCount" class="muted"></span></h2></div>
+  <section class="card section" data-views="investigator">
+    <div class="row"><h2>Investigations <span id="invCount" class="muted"></span></h2><span class="muted" id="knowledgePath"></span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Bug</th><th>Status</th><th>Report</th><th>Started</th><th></th></tr></thead>
+      <tbody id="investigations"></tbody>
+    </table></div>
+    <div id="invEmpty" class="empty" hidden>No investigations yet. Start one from a bug below.</div>
+  </section>
+
+  <section class="card section" data-views="overview messenger investigator">
+    <div class="row"><h2 id="tasksTitle">Agent tasks <span id="taskCount" class="muted"></span></h2></div>
     <div class="scroll"><table>
       <thead><tr><th>Task</th><th>Source</th><th>Flags</th><th>Created</th><th></th></tr></thead>
       <tbody id="tasks"></tbody>
@@ -160,7 +197,7 @@
     <div id="tasksEmpty" class="empty" hidden>No open tasks from the agents.</div>
   </section>
 
-  <section class="card section" id="ignoredCard" hidden>
+  <section class="card section" id="ignoredCard" data-views="messenger" hidden>
     <details>
       <summary>Ignored bugs <span id="ignoredCount" class="muted"></span></summary>
       <p class="muted" style="margin:0 0 8px">No task and no updates for these. Restore brings the bug back.</p>
@@ -171,7 +208,7 @@
     </details>
   </section>
 
-  <section class="card section" id="skippedCard" hidden>
+  <section class="card section" id="skippedCard" data-views="messenger" hidden>
     <details>
       <summary>Skipped WhatsApp messages <span id="skippedCount" class="muted"></span></summary>
       <p class="muted" style="margin:0 0 8px">Messages in watched chats the rules judged not for you. If one should have been caught, add a keyword.</p>
@@ -182,7 +219,7 @@
     </details>
   </section>
 
-  <section class="card section">
+  <section class="card section" data-views="overview messenger investigator">
     <div class="row" style="flex-wrap: wrap; margin-bottom: 8px;">
       <h2 style="margin:0">Activity</h2>
       <div class="filters" id="actionFilters"></div>
@@ -197,6 +234,16 @@
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
+
+// ── Pages: one HTML, sections tagged with data-views ────────────────────
+const VIEW = { '/messenger': 'messenger', '/investigator': 'investigator' }[location.pathname] ?? 'overview';
+const TITLES = { overview: 'Agents', messenger: 'Messenger agent', investigator: 'Investigator agent' };
+document.querySelectorAll('[data-views]').forEach((n) => { if (!n.dataset.views.split(' ').includes(VIEW)) n.remove(); });
+document.querySelectorAll('[data-tab]').forEach((a) => { if (a.dataset.tab === VIEW) a.setAttribute('aria-current', 'page'); });
+document.querySelectorAll('[data-go]').forEach((n) => { n.onclick = () => (location.href = n.dataset.go); });
+document.getElementById('pageTitle').textContent = TITLES[VIEW];
+document.title = `${TITLES[VIEW]} · Agents`;
+const has = (id) => !!document.getElementById(id);
 const el = (tag, props = {}, ...children) => {
   const n = Object.assign(document.createElement(tag), props);
   n.append(...children.filter((c) => c != null));
@@ -231,6 +278,7 @@ const LINK = {
 };
 
 function renderSources(s) {
+  if (!has('adoPill')) return renderPipeline(s);
   const ado = s.ado;
   if (ado.error) pill($('adoPill'), 'bad', 'Error');
   else pill($('adoPill'), ado.enabled ? 'ok' : 'idle', ado.enabled ? 'Listening' : 'Off');
@@ -260,6 +308,18 @@ function renderSources(s) {
   $('waSince').textContent = wa.enabled && wa.since ? `Counting since ${new Date(wa.since).toLocaleString()}` : '';
   renderSkipped(wa.skipped ?? []);
 
+  renderPipeline(s);
+}
+
+function renderPipeline(s) {
+  if (!has('invPill')) return;
+  const ado = s.ado;
+  const wa = s.whatsapp;
+  const invs = last?.investigations ?? [];
+  const running = invs.filter((i) => ['running', 'changes-requested'].includes(i.status)).length;
+  const ready = invs.filter((i) => i.status === 'report-ready').length;
+  if (!last?.investigatorOn) pill($('invPill'), 'idle', 'Off — needs Azure DevOps');
+  else pill($('invPill'), ready ? 'info' : running ? 'warn' : 'ok', ready ? `${ready} report${ready > 1 ? 's' : ''} to review` : running ? `${running} running` : 'Ready');
   const live = [ado.enabled && !ado.error, wa.enabled && wa.link?.state === 'connected'].filter(Boolean).length;
   pill($('messengerPill'), live ? 'ok' : 'warn', live ? `Live · ${live} source${live > 1 ? 's' : ''}` : 'No live source');
 }
@@ -267,16 +327,19 @@ function renderSources(s) {
 const HOT = new Set(['to-investigate', 'needs-reply', 'new-comment']);
 const HIDE = (l) => l === 'bug' || l === 'whatsapp' || l.startsWith('wa-') || l.startsWith('ado-');
 
-function renderTasks(tasks) {
+function renderTasks(all) {
+  // Investigator page: bugs not yet investigated; other pages: every agent task.
+  const tasks = VIEW === 'investigator' ? all.filter((t) => t.bugId && !t.investigation) : all;
+  if (VIEW === 'investigator') $('tasksTitle').firstChild.textContent = 'Bugs to investigate ';
   $('taskCount').textContent = tasks.length ? `(${tasks.length})` : '';
   $('tasksEmpty').hidden = tasks.length > 0;
-  $('tasks').replaceChildren(...tasks.map((t) => el('tr', {},
-    el('td', {}, t.link ? el('a', { href: t.link, target: '_blank', rel: 'noopener', textContent: t.title }) : t.title, el('div', { className: 'muted', textContent: `#${t.id} · P${t.priority}${t.status && t.status !== 'todo' ? ` · ${t.status}` : ''}` }), t.bugId ? bugNotes(t) : null),
+  $('tasks').replaceChildren(...tasks.flatMap((t) => [el('tr', {},
+    el('td', {}, t.link ? el('a', { href: t.link, target: '_blank', rel: 'noopener', textContent: t.title }) : t.title, el('div', { className: 'muted', textContent: `#${t.id} · P${t.priority}${t.status && t.status !== 'todo' ? ` · ${t.status}` : ''}` }), t.investigation ? investigationPill(t.investigation) : null, t.bugId ? bugNotes(t) : null),
     el('td', {}, el('span', { className: `pill ${t.source === 'whatsapp' ? 'ok' : 'info'}`, textContent: t.source === 'whatsapp' ? 'WhatsApp' : 'Azure DevOps' })),
     el('td', {}, el('div', { className: 'tags' }, ...t.labels.filter((l) => !HIDE(l)).sort((a, b) => HOT.has(b) - HOT.has(a)).map((l) => el('span', { className: `tag${HOT.has(l) ? ' hot' : ''}`, textContent: l })))),
     el('td', { className: 'when', textContent: ago(t.createdAt) }),
     el('td', {}, taskActions(t)),
-  )));
+  ), reportOpen === t.bugId && t.investigation ? reportRow(t) : null].filter(Boolean)));
 }
 
 async function act(id, action) {
@@ -297,13 +360,17 @@ function actionButton(label, run, needsConfirm = false) {
       return;
     }
     b.disabled = true;
-    try { await run(); } catch (e) { b.disabled = false; b.textContent = 'Failed'; b.title = e.message; }
+    try { await run(); b.disabled = false; } catch (e) { b.disabled = false; b.textContent = 'Failed'; b.title = e.message; }
   };
   return b;
 }
 
 function taskActions(t) {
+  const inv = t.investigation;
   return el('div', { className: 'actions' },
+    t.bugId && last?.investigatorOn && !inv ? actionButton('Investigate', () => postJson(`/api/bugs/${t.bugId}/investigate`).then(refresh)) : null,
+    inv ? actionButton('Terminal', () => postJson(`/api/bugs/${t.bugId}/terminal`)) : null,
+    inv?.reportVersion ? actionButton(reportOpen === t.bugId ? 'Hide report' : 'Report', () => toggleReport(t.bugId)) : null,
     t.bugId ? actionButton('Add note', () => openNoteForm(t)) : null,
     t.labels.includes('needs-reply') ? actionButton('Replied', () => act(t.id, 'replied')) : null,
     t.labels.includes('new-comment') ? actionButton('Mark read', () => act(t.id, 'read')) : null,
@@ -362,6 +429,7 @@ function openNoteForm(t) {
 
 // ── Ignored bugs ────────────────────────────────────────────────────────
 function renderIgnored(items) {
+  if (!has('ignoredCard')) return;
   $('ignoredCard').hidden = items.length === 0;
   $('ignoredCount').textContent = `(${items.length})`;
   $('ignored').replaceChildren(...items.map((b) => el('tr', {},
@@ -369,6 +437,119 @@ function renderIgnored(items) {
     el('td', { className: 'when', textContent: ago(b.at) }),
     el('td', {}, el('div', { className: 'actions' }, actionButton('Restore', () => postJson(`/api/bugs/${b.id}/restore`).then(refresh)))),
   )));
+}
+
+// ── Investigator ────────────────────────────────────────────────────────
+const INV = {
+  running: ['warn', 'Investigating…'],
+  'report-ready': ['info', 'Report ready'],
+  'changes-requested': ['warn', 'Revising report…'],
+  approved: ['ok', 'Approved'],
+  rejected: ['bad', 'Rejected'],
+};
+let reportOpen = null; // bug id whose report row is expanded
+const reports = {}; // bugId -> { at, data }
+
+function investigationPill(inv) {
+  const [tone, label] = INV[inv.status] ?? ['idle', inv.status];
+  return el('div', { style: 'margin-top:4px' }, el('span', { className: `pill dot ${tone}`, textContent: `Investigator: ${label}` }), el('span', { className: 'muted', textContent: ` · started ${ago(inv.startedAt)}` }));
+}
+
+async function toggleReport(bugId) {
+  reportOpen = reportOpen === bugId ? null : bugId;
+  if (reportOpen) await loadReport(bugId);
+  render(last, true);
+}
+
+async function loadReport(bugId) {
+  const inv = (last.investigations ?? []).find((i) => i.bugId === bugId);
+  const key = `${inv?.reportVersion}:${inv?.reviews?.length ?? 0}`;
+  if (reports[bugId] && reports[bugId].at === key) return;
+  const data = await (await fetch(`/api/bugs/${bugId}/report`, { cache: 'no-store' })).json();
+  reports[bugId] = { at: key, data };
+}
+
+const list = (items) => (items?.length ? el('ul', {}, ...items.map((x) => el('li', { textContent: x }))) : el('p', { className: 'muted', textContent: 'None.' }));
+const para = (text) => el('p', { textContent: text || '—' });
+
+const VERDICT_TONE = { bug: 'bad', 'works-as-designed': 'ok', 'requirement-gap': 'warn', 'cannot-reproduce': 'warn', 'needs-info': 'warn' };
+
+/** Decision first (verdict, summary, the fix); evidence folded away. */
+function reportView({ report: j, reviews = [] }) {
+  if (!j) return el('p', { className: 'muted', textContent: 'No report saved yet — the Investigator is still working.' });
+  const reviewLines = reviews.map((v) => el('li', { textContent: `v${v.version} · ${v.decision}${v.feedback ? ` — ${v.feedback}` : ''} (${ago(v.createdAt)})` }));
+  return el('div', {},
+    el('div', { className: 'toolbar' },
+      el('span', { className: `pill ${VERDICT_TONE[j.verdict] ?? 'idle'}`, textContent: j.verdict }),
+      el('span', { className: 'pill idle', textContent: `confidence ${j.confidence}` }),
+      el('span', { className: 'pill idle', textContent: `in requirement: ${j.requirement?.covered}` }),
+      el('span', { className: 'muted', textContent: `v${j.version} · ${ago(j.createdAt)}` })),
+    el('p', { className: 'lead', textContent: j.summary }),
+    el('h3', { textContent: 'Fix' }), para(j.fix?.approach),
+    ...(j.fix?.changes ?? []).map((c) => el('div', { className: 'change' },
+      el('div', { className: 'path', textContent: `${c.repo}/${c.path}` }),
+      el('div', { className: 'ba' }, el('pre', { className: 'before', textContent: c.before ?? '' }), el('pre', { className: 'after', textContent: c.after ?? '' })))),
+    j.openQuestions?.length ? el('h3', { textContent: 'Open questions' }) : null,
+    j.openQuestions?.length ? list(j.openQuestions) : null,
+    el('details', { style: 'margin-top:10px' },
+      el('summary', { textContent: 'Evidence' }),
+      el('h3', { textContent: 'Requirement' }), para(j.requirement?.note),
+      el('h3', { textContent: 'Root cause' }), para(j.rootCause),
+      el('h3', { textContent: 'Files' }),
+      j.files?.length ? el('ul', {}, ...j.files.map((f) => el('li', {}, el('code', { textContent: `${f.repo}/${f.path}${f.lines ? `:${f.lines}` : ''}` })))) : para(''),
+      el('h3', { textContent: 'How to test' }), list(j.tests)),
+    reviewLines.length ? el('details', {}, el('summary', { textContent: `Your reviews (${reviewLines.length})` }), el('ul', {}, ...reviewLines)) : null,
+  );
+}
+
+let feedbackBox = null;
+
+function reportRow(t) {
+  const inv = (last.investigations ?? []).find((i) => i.bugId === t.bugId) ?? t.investigation;
+  const r = reports[t.bugId]?.data ?? {};
+  feedbackBox = el('textarea', { placeholder: 'What should change? Rough is fine — it goes to the Investigator in its terminal.' });
+  const msg = el('span', { className: 'muted' });
+  const review = (decision) => async () => {
+    try {
+      await postJson(`/api/bugs/${t.bugId}/review`, { decision, feedback: feedbackBox.value });
+      feedbackBox.value = '';
+      await refresh(true);
+    } catch (e) {
+      msg.textContent = e.message;
+    }
+  };
+  const decided = inv.status === 'approved' || inv.status === 'rejected';
+  if (!r.report) return el('tr', {}, el('td', { colSpan: 5 }, el('div', { className: 'report' }, reportView(r))));
+  return el('tr', {}, el('td', { colSpan: 5 }, el('div', { className: 'report' },
+    reportView(r),
+    el('div', { className: 'review' },
+      el('strong', { textContent: decided ? `You ${inv.status} this report — you can still revise it:` : 'Your review' }),
+      feedbackBox,
+      el('div', { className: 'toolbar' },
+        actionButton('Request changes', review('changes')),
+        decided ? null : actionButton('Approve', review('approve'), true),
+        decided ? null : actionButton('Reject', review('reject'), true),
+        msg)))));
+}
+
+function renderInvestigations(items) {
+  if (!has('investigations')) return;
+  $('invCount').textContent = items.length ? `(${items.length})` : '';
+  $('invEmpty').hidden = items.length > 0;
+  $('knowledgePath').textContent = last.knowledgeFile ? `Repo knowledge: ${last.knowledgeFile}` : '';
+  $('investigations').replaceChildren(...items.flatMap((i) => {
+    const t = { bugId: i.bugId, investigation: i, title: i.title, link: i.link, labels: [] };
+    const [tone, label] = INV[i.status] ?? ['idle', i.status];
+    const row = el('tr', {},
+      el('td', {}, el('a', { href: i.link, target: '_blank', rel: 'noopener', textContent: `Bug ${i.bugId}` }), el('div', { className: 'muted', textContent: i.title })),
+      el('td', {}, el('span', { className: `pill dot ${tone}`, textContent: label })),
+      el('td', {}, i.report ? el('span', { className: `pill ${VERDICT_TONE[i.report.verdict] ?? 'idle'}`, textContent: `v${i.report.version} · ${i.report.verdict}` }) : el('span', { className: 'muted', textContent: '—' })),
+      el('td', { className: 'when', textContent: ago(i.startedAt) }),
+      el('td', {}, el('div', { className: 'actions' },
+        actionButton('Terminal', () => postJson(`/api/bugs/${i.bugId}/terminal`)),
+        i.reportVersion ? actionButton(reportOpen === i.bugId ? 'Hide report' : 'Report', () => toggleReport(i.bugId)) : null)));
+    return [row, reportOpen === i.bugId ? reportRow(t) : null].filter(Boolean);
+  }));
 }
 
 // ── WhatsApp chat picker ────────────────────────────────────────────────
@@ -426,6 +607,7 @@ $('savePicker').onclick = async () => {
 };
 
 function renderSkipped(items) {
+  if (!has('skippedCard')) return;
   $('skippedCard').hidden = items.length === 0;
   $('skippedCount').textContent = `(${items.length})`;
   $('skipped').replaceChildren(...items.map((a) => el('tr', {},
@@ -436,9 +618,9 @@ function renderSkipped(items) {
 }
 
 const ACTIONS = { all: 'All', created: 'Created', annotated: 'Notes', reopened: 'Reopened', done: 'Done', ignored: 'Ignored', error: 'Errors' };
-const SOURCES = { all: 'All sources', ado: 'Azure DevOps', whatsapp: 'WhatsApp', dashboard: 'You' };
+const SOURCES = { all: 'All sources', ado: 'Azure DevOps', whatsapp: 'WhatsApp', investigator: 'Investigator', dashboard: 'You' };
 const TONE = { created: 'ok', annotated: 'info', reopened: 'warn', done: 'ok', ignored: 'idle', error: 'bad' };
-let filter = { action: 'all', source: 'all' };
+let filter = { action: 'all', source: VIEW === 'investigator' ? 'investigator' : 'all' };
 let last;
 
 function filterButtons(node, options, key) {
@@ -469,16 +651,23 @@ function render(d, force = false) {
   last = d;
   $('todoLink').href = d.todoDashboardUrl;
   renderSources(d.sources);
-  // Don't wipe a note being typed; the next refresh after closing catches up.
-  if (force || noteFormFor === null) renderTasks(d.tasks);
+  // Don't wipe a note or review being typed; the next refresh after closing catches up.
+  const typing = noteFormFor !== null || (feedbackBox && reportOpen && (feedbackBox.value || document.activeElement === feedbackBox));
+  if (force || !typing) {
+    renderTasks(d.tasks);
+    renderInvestigations(d.investigations ?? []);
+  }
   renderIgnored(d.ignoredBugs ?? []);
   renderActivity(d.activity);
   $('updated').textContent = `Updated ${new Date(d.now).toLocaleTimeString()}`;
 }
 
-async function refresh() {
+async function refresh(force = false) {
   try {
-    render(await (await fetch('/api/overview', { cache: 'no-store' })).json());
+    const d = await (await fetch('/api/overview', { cache: 'no-store' })).json();
+    last = d;
+    if (reportOpen) await loadReport(reportOpen).catch(() => {});
+    render(d, force);
   } catch {
     $('updated').textContent = 'Agents server not reachable — retrying…';
   }

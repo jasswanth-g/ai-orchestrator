@@ -3,6 +3,7 @@ import type { ActivityLog } from '../events/activity.ts';
 import type { Receiver } from '../events/receiver.ts';
 import type { Store } from '../store/store.ts';
 import type { Item } from '../types.ts';
+import type { Investigator } from '../investigator/service.ts';
 import type { BridgeSupervisor } from '../whatsapp/bridge.ts';
 import { listChats } from '../whatsapp/receiver.ts';
 
@@ -16,6 +17,8 @@ import { listChats } from '../whatsapp/receiver.ts';
 
 const page = Bun.file(new URL('./page.html', import.meta.url));
 const AGENT_SOURCES = ['azure-devops', 'whatsapp'];
+/** One page, three views: the client shows the sections for its path. */
+const PAGES = new Set(['/', '/messenger', '/investigator']);
 const TRACKED_DAYS = 90;
 
 /** Bug id from a task's ado-<id> label. */
@@ -40,6 +43,8 @@ export function agentsDashboard(o: {
   adoError?: string;
   settings: Settings;
   bugNotes: BugNotes;
+  /** Unset when ADO is off or failed to start. */
+  investigator?: Investigator;
   /** Bridge store dir, for the chat list; unset when the bridge is off. */
   waStoreDir?: string;
   todoDashboardUrl: string;
@@ -68,6 +73,7 @@ export function agentsDashboard(o: {
       const r = o.receivers.find((x) => x.name === name);
       return r ? { enabled: true, ...(await r.status()) } : { enabled: false };
     };
+    const investigations = new Map((await o.investigator?.refresh())?.map((i) => [i.bugId, i]) ?? []);
     const tasks = (await o.store.list('work'))
       .filter((t) => AGENT_SOURCES.includes(t.source))
       .map((t) => {
@@ -83,6 +89,7 @@ export function agentsDashboard(o: {
           createdAt: t.createdAt,
           bugId,
           notes: bugId ? o.bugNotes.for(bugId) : undefined,
+          investigation: bugId ? investigations.get(bugId) : undefined,
         };
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -94,6 +101,12 @@ export function agentsDashboard(o: {
         whatsapp: { ...(await status('whatsapp')), link: await whatsappLink() },
       },
       tasks,
+      investigatorOn: !!o.investigator,
+      knowledgeFile: o.investigator?.knowledgeFile,
+      investigations: [...investigations.values()].map((i) => {
+        const r = o.investigator!.report(i.bugId).report;
+        return { ...i, link: o.investigator!.bugUrl(i.bugId), report: r ? { version: r.version, verdict: r.verdict, confidence: r.confidence } : undefined };
+      }),
       ignoredBugs: [...o.settings.ignoredBugs].reverse(),
       activity: o.activity.recent(150),
     };
@@ -162,6 +175,21 @@ export function agentsDashboard(o: {
       return note;
     }
 
+    if ((m = /^\/api\/bugs\/(\d+)\/(investigate|terminal|review)$/.exec(path))) {
+      if (!o.investigator) throw new HttpError(409, 'Investigator is off — Azure DevOps is not connected');
+      const bugId = Number(m[1]);
+      try {
+        if (m[2] === 'investigate') return await o.investigator.start(bugId);
+        if (m[2] === 'terminal') return { result: await o.investigator.openTerminal(bugId) };
+        const decision = body.decision;
+        if (decision !== 'approve' && decision !== 'reject' && decision !== 'changes') throw new HttpError(400, 'decision: approve | reject | changes');
+        return await o.investigator.review(bugId, decision, typeof body.feedback === 'string' ? body.feedback : undefined);
+      } catch (err) {
+        if (err instanceof HttpError) throw err;
+        throw new HttpError(400, err instanceof Error ? err.message : String(err));
+      }
+    }
+
     if ((m = /^\/api\/bugs\/(\d+)\/notes\/(\d+)\/delete$/.exec(path))) {
       if (!o.bugNotes.remove(Number(m[1]), Number(m[2]))) throw new HttpError(404, 'no such note');
       return { ok: true };
@@ -172,14 +200,16 @@ export function agentsDashboard(o: {
 
   return async function handle(req: Request): Promise<Response | undefined> {
     const url = new URL(req.url);
-    if (url.pathname !== '/' && !url.pathname.startsWith('/api/')) return undefined;
+    if (!PAGES.has(url.pathname) && !url.pathname.startsWith('/api/')) return undefined;
     if (!localHosts.has(req.headers.get('host') ?? '')) return new Response('forbidden', { status: 403 });
 
     try {
       if (req.method === 'GET') {
-        if (url.pathname === '/') return new Response(page, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        if (PAGES.has(url.pathname)) return new Response(page, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
         if (url.pathname === '/api/overview') return Response.json(await overview(), { headers: { 'Cache-Control': 'no-store' } });
         if (url.pathname === '/api/whatsapp/chats') return Response.json(chats(), { headers: { 'Cache-Control': 'no-store' } });
+        const rep = /^\/api\/bugs\/(\d+)\/report$/.exec(url.pathname);
+        if (rep && o.investigator) return Response.json(o.investigator.report(Number(rep[1])), { headers: { 'Cache-Control': 'no-store' } });
         throw new HttpError(404, 'not found');
       }
       if (req.method !== 'POST') throw new HttpError(405, 'method not allowed');
