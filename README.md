@@ -93,3 +93,41 @@ bun run dashboard   # http://127.0.0.1:4319
 - New tool group → add a file in `src/tools/`, list it in `src/tools/index.ts`.
 - New channel → nothing to build; see `src/sources/README.md`.
 - Structured fields (`source`, `link`, `path`) live in the item description footer (`src/store/meta.ts`).
+
+## Bug intake (Azure DevOps events)
+
+Azure DevOps pushes Bug events to a local receiver, which turns them into
+todo-brain tasks. No polling: one catch-up query runs on start for anything
+missed while the Mac was off.
+
+```
+ADO service hook ──HTTPS──► tunnel ──► 127.0.0.1:4320/hooks/ado ──► BugIntake ──► Store
+ (created / updated / commented, Bug only)      src/ado-webhook.ts      src/ado/intake.ts
+```
+
+| Event | Task |
+|---|---|
+| Bug assigned to me | created (`assigned`) |
+| Comment mentions me / one of my groups | created (`mentioned` / `team-mentioned`), comment attached |
+| New bug in one of `ADO_MY_APPS` | created (`my-area`) |
+| Any comment / state / assignment change on a tracked bug | comment attached; comments add `new-comment`; reopened bug reopens a done task |
+| My own changes, closed bugs, everything else | ignored |
+
+Every task carries `ado-<id>`, `bug`, `to-investigate` and the app label — the
+Investigator agent's queue. Auth to ADO uses the `az login` session.
+
+```bash
+export ADO_HOOK_SECRET=$(openssl rand -hex 24)   # basic-auth password ADO sends
+export ADO_MY_APPS="eB2B Buyer App,Seller App"    # optional
+bun run ado-webhook                               # receiver + catch-up
+<start a tunnel to 127.0.0.1:4320 with a stable public URL>
+bun run ado-hooks create https://<public-host>    # one-time: 3 service hooks
+bun run ado-hooks list | delete
+```
+
+| Env var | Meaning |
+|---|---|
+| `ADO_HOOK_SECRET` | Required. Basic-auth password on the service hooks |
+| `ADO_HOOK_PORT` | Receiver port, default 4320 |
+| `ADO_MY_APPS` | Comma list of `Custom.Application` values I own |
+| `ADO_ORG` / `ADO_PROJECT` | Default `https://dev.azure.com/xavica` / `Qwipo B2B` |
