@@ -1,5 +1,7 @@
+import { dirname, join } from 'node:path';
 import { log } from '../config.ts';
-import { errText, type Receiver, sameSecret } from '../events/receiver.ts';
+import { errText, loadOrCreateSecret, type Receiver, sameSecret } from '../events/receiver.ts';
+import { dbPath } from '../config.ts';
 import { type ActivityLog, SourceStats } from '../events/activity.ts';
 import type { SeenIds } from '../events/seen.ts';
 import type { Store } from '../store/store.ts';
@@ -8,16 +10,22 @@ import { type AdoPayload, OPEN_STATES, parsePayload } from './events.ts';
 import { BugIntake } from './intake.ts';
 
 /**
+ * The service hooks' basic-auth password: ADO_HOOK_SECRET, else a secret kept
+ * next to the todo-brain DB (created on first use). `ado-hooks create` uses it too.
+ */
+export const adoHookSecret = () => process.env.ADO_HOOK_SECRET || loadOrCreateSecret(join(dirname(dbPath), 'ado-hook-secret'));
+
+/**
  * Azure DevOps service-hook events for Bugs → todo-brain tasks (intake.ts).
  * ADO reaches it through a tunnel; the service hook authenticates with basic
  * auth whose password is `secret`. catchUp() runs one query instead of polling.
  */
-export async function adoReceiver(o: { store: Store; secret: string; myApps: string[]; seen: SeenIds; activity: ActivityLog }): Promise<Receiver> {
+export async function adoReceiver(o: { store: Store; secret: string; myApps: string[]; seen: SeenIds; activity: ActivityLog; statsFile: string }): Promise<Receiver> {
   const ado = new AdoClient(adoConfig());
   const me = await ado.me();
   const intake = new BugIntake({ store: o.store, me, myApps: o.myApps, bugUrl: ado.bugUrl });
   log(`ado: ${me.email}, ${me.groupIds.length} groups, my apps: ${o.myApps.join(', ') || 'none'}`);
-  const stats = new SourceStats();
+  const stats = new SourceStats(o.statsFile);
 
   const authorised = (req: Request) => {
     const m = /^Basic (.+)$/.exec(req.headers.get('authorization') ?? '');
@@ -70,6 +78,7 @@ export async function adoReceiver(o: { store: Store; secret: string; myApps: str
           const out = await intake.track(bug, reason);
           if (out.action === 'created') {
             created++;
+            stats.record('created', false);
             log(`ado catch-up: Bug ${bug.id} → task ${out.taskId} (${reason})`);
             o.activity.add({ source: 'ado', kind: 'catch-up', subject: `Bug ${bug.id}`, action: 'created', reason, taskId: out.taskId, link: ado.bugUrl(bug.id) });
           }
@@ -80,7 +89,7 @@ export async function adoReceiver(o: { store: Store; secret: string; myApps: str
     },
 
     async status() {
-      return { account: me.email, groups: me.groupIds.length, myApps: o.myApps, ...stats };
+      return { account: me.email, groups: me.groupIds.length, myApps: o.myApps, ...stats.toJSON() };
     },
   };
 }

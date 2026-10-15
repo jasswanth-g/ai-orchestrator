@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { dirname, join } from 'node:path';
-import { adoReceiver } from './ado/receiver.ts';
+import { adoHookSecret, adoReceiver } from './ado/receiver.ts';
 import { agentsDashboard } from './agents-dashboard/routes.ts';
 import { dbPath, log, pickStore } from './config.ts';
 import { ActivityLog } from './events/activity.ts';
@@ -15,12 +15,12 @@ import { whatsappUi } from './whatsapp/ui.ts';
  * One process for every agent input: a local event server with a route per
  * source, plus the WhatsApp bridge as a child process.
  *
- *   /hooks/ado        Azure DevOps service hooks (via a tunnel)   — on when ADO_HOOK_SECRET is set
+ *   /hooks/ado        Azure DevOps service hooks (via a tunnel)   — off with ADO=off
  *   /hooks/whatsapp   bridges/whatsapp, spawned here              — off with WHATSAPP_BRIDGE=off
  *   /                 agents dashboard: sources, agent tasks, activity feed
  *   /whatsapp         connection page: status, pairing QR, unlink
  *
- * Env: AGENTS_PORT (4320), ADO_HOOK_SECRET, ADO_MY_APPS, WHATSAPP_WATCH_CHATS,
+ * Env: AGENTS_PORT (4320), ADO (off), ADO_HOOK_SECRET (default: stored secret), ADO_MY_APPS, WHATSAPP_WATCH_CHATS,
  * WHATSAPP_KEYWORDS, WHATSAPP_STORE_DIR (bridge session + messages.db).
  */
 
@@ -31,12 +31,27 @@ const store = pickStore();
 const receivers: Receiver[] = [];
 const activity = new ActivityLog(join(stateDir, 'agents-activity.jsonl'));
 
-const adoSecret = process.env.ADO_HOOK_SECRET;
-if (adoSecret) {
-  receivers.push(
-    await adoReceiver({ store, secret: adoSecret, myApps: list(process.env.ADO_MY_APPS), seen: new SeenIds(join(stateDir, 'ado-events-seen.json')), activity }),
-  );
-} else log('ado: off (ADO_HOOK_SECRET not set)');
+// ADO is on unless ADO=off. Without a tunnel it still runs the startup catch-up.
+const adoOn = process.env.ADO !== 'off';
+let adoError: string | undefined;
+if (adoOn) {
+  try {
+    receivers.push(
+      await adoReceiver({
+        store,
+        secret: adoHookSecret(),
+        myApps: list(process.env.ADO_MY_APPS),
+        seen: new SeenIds(join(stateDir, 'ado-events-seen.json')),
+        activity,
+        statsFile: join(stateDir, 'ado-stats.json'),
+      }),
+    );
+  } catch (err) {
+    // e.g. `az login` expired — keep WhatsApp running and show the error on the dashboard.
+    adoError = errText(err);
+    log(`ado: failed to start — ${adoError}`);
+  }
+} else log('ado: off (ADO=off)');
 
 const bridgeOn = process.env.WHATSAPP_BRIDGE !== 'off';
 const waStoreDir = resolvePath(process.env.WHATSAPP_STORE_DIR ?? '~/Documents/GitHub/whatsapp-mcp/whatsapp-bridge/store');
@@ -55,6 +70,8 @@ if (bridgeOn) {
       seen: new SeenIds(join(stateDir, 'whatsapp-seen.json')),
       checkpointFile: join(stateDir, 'whatsapp-checkpoint.txt'),
       activity,
+      skipped: new ActivityLog(join(stateDir, 'whatsapp-skipped.jsonl'), 100),
+      statsFile: join(stateDir, 'whatsapp-stats.json'),
     }),
   );
 } else log('whatsapp: off (WHATSAPP_BRIDGE=off)');
@@ -69,7 +86,8 @@ const dashboard = agentsDashboard({
   receivers,
   activity,
   bridge,
-  adoEnabled: !!adoSecret,
+  adoOn,
+  adoError,
   todoDashboardUrl: `http://127.0.0.1:${process.env.TODO_BRAIN_DASHBOARD_PORT ?? 4319}`,
 });
 

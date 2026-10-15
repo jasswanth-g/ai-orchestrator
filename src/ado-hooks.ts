@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 import { AdoClient, adoConfig } from './ado/client.ts';
+import { adoHookSecret } from './ado/receiver.ts';
 
 /**
- * Manages the ADO service hooks that feed src/ado-webhook.ts.
+ * Manages the ADO service hooks that feed /hooks/ado on the agents server (src/agents.ts).
  *
  *   bun run ado-hooks list
- *   bun run ado-hooks create https://<public-host>     (needs ADO_HOOK_SECRET)
+ *   bun run ado-hooks create https://<public-host>     (password: ADO_HOOK_SECRET or the agents' stored secret)
  *   bun run ado-hooks delete                          (removes the ones pointing at /hooks/ado)
  */
 
@@ -20,8 +21,8 @@ const ours = async () => (await ado.listSubscriptions()).value.filter((s) => s.c
 if (cmd === 'list') {
   for (const s of await ours()) console.log(`${s.id}  ${s.eventType}  ${s.status}  ${s.consumerInputs.url}`);
 } else if (cmd === 'create') {
-  const secret = process.env.ADO_HOOK_SECRET;
-  if (!base || !secret) throw new Error('usage: ADO_HOOK_SECRET=… bun run ado-hooks create https://<public-host>');
+  const secret = adoHookSecret();
+  if (!base) throw new Error('usage: bun run ado-hooks create https://<public-host>');
   const url = `${base.replace(/\/$/, '')}${PATH}`;
   const projectId = await ado.projectId();
   for (const eventType of EVENTS) {

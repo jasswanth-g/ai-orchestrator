@@ -9,10 +9,12 @@ export interface Activity {
   kind: string;
   /** What it was about, e.g. "Bug 21583" or a chat name. */
   subject: string;
-  action: 'created' | 'annotated' | 'reopened' | 'ignored' | 'error';
+  action: 'created' | 'annotated' | 'reopened' | 'ignored' | 'error' | 'done';
   reason: string;
   taskId?: string;
   link?: string;
+  /** Extra line, e.g. sender and text of a skipped message. */
+  detail?: string;
 }
 
 /**
@@ -59,18 +61,49 @@ export class ActivityLog {
   }
 }
 
-/** Per-source counters and timestamps for the dashboard's source cards. */
+/**
+ * Per-source counters and timestamps for the dashboard's source cards, saved
+ * to a JSON file so they survive restarts. `since` is when counting started.
+ */
 export class SourceStats {
+  since = new Date().toISOString();
   lastEventAt?: string;
   lastCatchUp?: { at: string; summary: string };
   counts = { created: 0, annotated: 0, reopened: 0, ignored: 0, error: 0 };
 
-  record(action: keyof SourceStats['counts']): void {
+  constructor(private readonly file?: string) {
+    if (file && existsSync(file)) {
+      try {
+        const saved = JSON.parse(readFileSync(file, 'utf8')) as Partial<SourceStats>;
+        this.since = saved.since ?? this.since;
+        this.lastEventAt = saved.lastEventAt;
+        this.lastCatchUp = saved.lastCatchUp;
+        this.counts = { ...this.counts, ...saved.counts };
+      } catch {
+        // unreadable: start counting again
+      }
+    }
+  }
+
+  /** Counts an outcome; `live` = it came from an event, so it moves lastEventAt. */
+  record(action: keyof SourceStats['counts'], live = true): void {
     this.counts[action]++;
-    this.lastEventAt = new Date().toISOString();
+    if (live) this.lastEventAt = new Date().toISOString();
+    this.save();
   }
 
   caughtUp(summary: string): void {
     this.lastCatchUp = { at: new Date().toISOString(), summary };
+    this.save();
+  }
+
+  toJSON() {
+    return { since: this.since, lastEventAt: this.lastEventAt, lastCatchUp: this.lastCatchUp, counts: this.counts };
+  }
+
+  private save(): void {
+    if (!this.file) return;
+    mkdirSync(dirname(this.file), { recursive: true });
+    writeFileSync(this.file, JSON.stringify(this));
   }
 }

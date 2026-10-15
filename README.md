@@ -107,7 +107,6 @@ bridges/whatsapp (child) ─── localhost ─────┘   /hooks/ado, /h
 ```
 
 ```bash
-export ADO_HOOK_SECRET=$(openssl rand -hex 24)     # ADO route on when set
 export ADO_MY_APPS="eB2B Buyer App,Seller App"      # optional
 export WHATSAPP_WATCH_CHATS="EB2b tech group,Qwipo X TCPL : ONDC"
 export WHATSAPP_KEYWORDS="Jasswanth"
@@ -118,7 +117,8 @@ bun run ado-hooks create https://<public-host>      # one-time, after the tunnel
 | Env var | Meaning |
 |---|---|
 | `AGENTS_PORT` | Event server port, default 4320 |
-| `ADO_HOOK_SECRET` | Basic-auth password on the ADO service hooks; unset = ADO off |
+| `ADO` | `off` = no Azure DevOps (default on: startup catch-up even without a tunnel) |
+| `ADO_HOOK_SECRET` | Basic-auth password on the ADO service hooks; default a stored secret in `ado-hook-secret` (0600) next to the todo-brain DB |
 | `ADO_MY_APPS` | `Custom.Application` values I own (new bugs there become tasks) |
 | `ADO_ORG` / `ADO_PROJECT` | Default `https://dev.azure.com/xavica` / `Qwipo B2B` |
 | `WHATSAPP_BRIDGE` | `off` = don't start the bridge |
@@ -126,11 +126,13 @@ bun run ado-hooks create https://<public-host>      # one-time, after the tunnel
 | `WHATSAPP_KEYWORDS` | Words that make a group message "for me" |
 | `WHATSAPP_STORE_DIR` | Bridge session + `messages.db`; default the whatsapp-mcp store, so the WhatsApp MCP server keeps reading the same data |
 
-**Dashboard:** `http://127.0.0.1:4320/` — each source's status (ADO account and
-last catch-up, WhatsApp link state), counts of tasks created / notes / ignored /
-errors since start, the open tasks the agents created, and an activity feed
-(kept in `agents-activity.jsonl` next to the todo-brain DB, last 500 entries).
-Ignored WhatsApp chatter is counted, not listed.
+**Dashboard:** `http://127.0.0.1:4320/` — each source's status (ADO account,
+last catch-up or start error; WhatsApp link state), counts of tasks created /
+notes / ignored / errors (kept across restarts, with the date counting began),
+the open tasks the agents created with **Replied** / **Mark read** / **Done**,
+the activity feed (`agents-activity.jsonl`, last 500) and the WhatsApp messages
+the rules skipped (`whatsapp-skipped.jsonl`, last 100). State files live next to
+the todo-brain DB.
 
 ### Azure DevOps bugs
 

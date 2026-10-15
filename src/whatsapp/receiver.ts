@@ -23,8 +23,11 @@ export function whatsappReceiver(o: {
   seen: SeenIds;
   checkpointFile: string;
   activity: ActivityLog;
+  /** Messages in watched chats that were judged not for me. */
+  skipped: ActivityLog;
+  statsFile: string;
 }): Receiver {
-  const stats = new SourceStats();
+  const stats = new SourceStats(o.statsFile);
   const intake = new WhatsAppIntake({ store: o.store, keywords: o.keywords });
   let checkpoint = existsSync(o.checkpointFile) ? readFileSync(o.checkpointFile, 'utf8').trim() : '';
   const watched = (m: WaMessage) => !o.watch.length || o.watch.includes(m.chat_jid) || o.watch.includes(m.chat_name);
@@ -33,9 +36,14 @@ export function whatsappReceiver(o: {
     if (o.seen.has(m.id)) return;
     if (watched(m)) {
       const out = await intake.handle(m);
-      stats.record(out.action);
-      // Ignored chatter is only counted; the feed would drown in it.
-      if (out.action !== 'ignored') {
+      stats.record(out.action, via === 'live');
+      // Ignored chatter goes to its own list; the main feed would drown in it.
+      if (out.action === 'ignored') {
+        if (!m.is_from_me) {
+          const text = m.content || (m.media_type ? `[${m.media_type}]` : '');
+          o.skipped.add({ source: 'whatsapp', kind: via, subject: m.chat_name || m.chat_jid, action: 'ignored', reason: out.reason, detail: `${m.sender_name || m.sender}: ${text.slice(0, 200)}` });
+        }
+      } else {
         log(`whatsapp ${via} ${m.chat_name}: ${out.action} (${out.reason}) task ${out.taskId}`);
         o.activity.add({ source: 'whatsapp', kind: via, subject: m.chat_name || m.chat_jid, action: out.action, reason: out.reason, taskId: out.taskId });
       }
@@ -107,7 +115,7 @@ export function whatsappReceiver(o: {
     },
 
     async status() {
-      return { watch: o.watch, keywords: o.keywords, checkpoint: checkpoint || undefined, ...stats };
+      return { watch: o.watch, keywords: o.keywords, checkpoint: checkpoint || undefined, ...stats.toJSON(), skipped: o.skipped.recent(100) };
     },
   };
 }
