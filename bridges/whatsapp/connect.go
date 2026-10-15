@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -112,14 +116,38 @@ func restartSoon() {
 	}()
 }
 
-// callerAllowed blocks cross-site requests from a browser: with
-// WHATSAPP_EVENT_SECRET set (the agents server sets it) callers must send it
-// as X-Bridge-Secret; without it, a JSON content type forces a CORS preflight.
-func callerAllowed(w http.ResponseWriter, r *http.Request) bool {
-	ok := r.Header.Get("Content-Type") == "application/json"
-	if secret := os.Getenv("WHATSAPP_EVENT_SECRET"); secret != "" {
-		ok = subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Bridge-Secret")), []byte(secret)) == 1
+// bridgeSecret guards every API endpoint (send, download, status, QR, pair,
+// logout) and signs forwarded events. It comes from WHATSAPP_EVENT_SECRET, or
+// is kept in <store>/bridge-secret (0600) so local clients such as the
+// WhatsApp MCP server can read it. Created on first start.
+var bridgeSecret string
+
+func loadBridgeSecret() error {
+	if s := os.Getenv("WHATSAPP_EVENT_SECRET"); s != "" {
+		bridgeSecret = s
+		return nil
 	}
+	path := filepath.Join(storeDir, "bridge-secret")
+	if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) >= 32 {
+		bridgeSecret = strings.TrimSpace(string(b))
+		return nil
+	}
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return err
+	}
+	bridgeSecret = hex.EncodeToString(buf)
+	if err := os.MkdirAll(storeDir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(bridgeSecret+"\n"), 0600)
+}
+
+// callerAllowed requires the X-Bridge-Secret header. Besides keeping other
+// local programs out, a custom header can't be sent cross-site without a CORS
+// preflight, so a web page can't drive the bridge from the browser.
+func callerAllowed(w http.ResponseWriter, r *http.Request) bool {
+	ok := bridgeSecret != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Bridge-Secret")), []byte(bridgeSecret)) == 1
 	if !ok {
 		http.Error(w, "forbidden", http.StatusForbidden)
 	}

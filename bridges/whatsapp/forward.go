@@ -18,7 +18,7 @@ import (
 // orchestrator), so it can react without polling messages.db.
 //
 //	WHATSAPP_EVENT_URL     receiver, e.g. http://127.0.0.1:4321/hooks/whatsapp (unset = off)
-//	WHATSAPP_EVENT_SECRET  sent as "Authorization: Bearer <secret>"
+//	WHATSAPP_EVENT_SECRET  sent as "Authorization: Bearer <secret>" (default: <store>/bridge-secret, see connect.go)
 //	WHATSAPP_WATCH_CHATS   comma list of chat JIDs or exact chat names; empty = every chat
 //
 // Delivery is best effort with a few retries: every message is already in
@@ -64,7 +64,7 @@ func newForwarder(logger waLog.Logger) *forwarder {
 		}
 	}
 	logger.Infof("Forwarding messages to %s (%d watched chats, 0 = all)", url, len(watch))
-	return &forwarder{url: url, secret: os.Getenv("WHATSAPP_EVENT_SECRET"), watch: watch, http: &http.Client{Timeout: 10 * time.Second}, logger: logger}
+	return &forwarder{url: url, secret: bridgeSecret, watch: watch, http: &http.Client{Timeout: 10 * time.Second}, logger: logger}
 }
 
 func (f *forwarder) watches(chatJID, chatName string) bool {

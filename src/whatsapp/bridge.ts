@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { log } from '../config.ts';
 
@@ -8,6 +10,21 @@ import { log } from '../config.ts';
  */
 
 const BRIDGE_API = 'http://127.0.0.1:8080';
+
+/**
+ * The bridge API secret, shared through <store>/bridge-secret (0600) so local
+ * clients like the WhatsApp MCP server can read it too. Created if missing.
+ */
+export function bridgeSecret(storeDir: string): string {
+  const file = join(storeDir, 'bridge-secret');
+  const existing = existsSync(file) ? readFileSync(file, 'utf8').trim() : '';
+  if (existing.length >= 32) return existing;
+  const secret = randomBytes(24).toString('hex');
+  mkdirSync(storeDir, { recursive: true });
+  writeFileSync(file, `${secret}\n`, { mode: 0o600 });
+  chmodSync(file, 0o600);
+  return secret;
+}
 
 export type BridgeProcess = 'off' | 'starting' | 'running' | 'down' | 'other_bridge' | 'build_failed';
 

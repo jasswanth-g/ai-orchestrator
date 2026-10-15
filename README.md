@@ -151,8 +151,14 @@ clients on one session conflict, so stop the whatsapp-mcp bridge first.
 
 **Connect / re-link:** open `http://127.0.0.1:4320/whatsapp` — link status,
 the pairing QR (scan from WhatsApp → Settings → Linked devices), a new QR when
-one expires, and Unlink. The page talks to the bridge through the agents server
-with a per-run secret; it only answers on localhost.
+one expires, and Unlink. The page only answers on localhost.
+
+**Bridge API security:** every bridge endpoint (`/api/send`, `/api/download`,
+status, QR, pair, logout) requires the `X-Bridge-Secret` header. The secret lives
+in `<WHATSAPP_STORE_DIR>/bridge-secret` (0600), created on first start; the agents
+server and the WhatsApp MCP server (`whatsapp-mcp-server/whatsapp.py`) read it
+from there. A custom header also means a web page can't call the bridge from
+your browser.
 
 A message is **for me** when it mentions me, replies to me, is a 1:1 chat, or
 contains one of `WHATSAPP_KEYWORDS`. One open task per chat (`wa-<chat>`)

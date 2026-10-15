@@ -709,6 +709,9 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if !callerAllowed(w, r) {
+			return
+		}
 
 		// Parse the request body
 		var req SendMessageRequest
@@ -753,6 +756,9 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		// Only allow POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !callerAllowed(w, r) {
 			return
 		}
 
@@ -859,6 +865,12 @@ func main() {
 		return
 	}
 	defer messageStore.Close()
+
+	// Secret for the REST API and forwarded events (connect.go)
+	if err := loadBridgeSecret(); err != nil {
+		logger.Errorf("Failed to set up the bridge secret: %v", err)
+		return
+	}
 
 	// Forward live messages to the agent orchestrator, if configured (forward.go)
 	eventForwarder = newForwarder(logger)
