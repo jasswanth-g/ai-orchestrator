@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>todo-brain</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e4e4df;
+    --accent: #3a5bd9; --red: #c2362f; --amber: #b7791f; --green: #2f8a4c;
+    --p1: #c2362f; --p2: #d9822b; --p3: #3a5bd9; --p4: #8a8a84;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --card: #1e1e1c; --ink: #ececea; --muted: #9a9a94; --line: #2e2e2b;
+      --accent: #7b96ff; --red: #ff6b61; --amber: #e8a33d; --green: #5cc27f;
+      --p1: #ff6b61; --p2: #f0a050; --p3: #7b96ff; --p4: #8a8a84;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; padding: 20px 24px 8px; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); }
+  .grow { flex: 1; }
+  input[type=search], input[type=number] { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  input[type=number] { width: 64px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 24px 16px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; min-width: 120px; }
+  .stat b { display: block; font-size: 22px; }
+  .stat.alert b { color: var(--red); }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; padding: 0 24px 32px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 10px; display: flex; gap: 8px; align-items: center; }
+  h2 .count { background: var(--line); color: var(--ink); border-radius: 10px; padding: 0 7px; font-size: 12px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); }
+  li:first-child { border-top: 0; }
+  .body { flex: 1; min-width: 0; }
+  .title { font-weight: 500; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
+  .notes { color: var(--muted); font-size: 12px; margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .pill { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 6px; color: #fff; flex: none; margin-top: 2px; }
+  .P1 { background: var(--p1); } .P2 { background: var(--p2); } .P3 { background: var(--p3); } .P4 { background: var(--p4); }
+  .overdue { color: var(--red); font-weight: 600; } .today { color: var(--amber); font-weight: 600; }
+  .score { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; flex: none; margin-top: 2px; }
+  a { color: var(--accent); }
+  button.done { font: inherit; font-size: 12px; background: none; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; flex: none; }
+  button.done:hover { color: var(--green); border-color: var(--green); }
+  .empty { color: var(--muted); font-style: italic; padding: 6px 0; }
+  .missing { color: var(--red); }
+  code { font-size: 12px; overflow-wrap: anywhere; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 2px 0 10px; }
+  .bar span { display: block; height: 100%; background: var(--accent); }
+  .bar.over span { background: var(--red); }
+  #err { color: var(--red); padding: 0 24px; }
+  #add { flex: 1 1 340px; min-width: 0; font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+  #add:focus, input[type=search]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; }
+  .tabs button { font: inherit; font-size: 13px; color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  .tabs button[aria-selected=true] { color: var(--ink); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 600; }
+  .tabs .count { background: var(--line); color: var(--ink); border-radius: 10px; padding: 0 7px; font-size: 12px; margin-left: 4px; }
+  .tabs .alert .count { background: var(--red); color: #fff; }
+  .notes.clamp { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+  .notes.clamp:hover { color: var(--ink); }
+  .notes.open { cursor: pointer; }
+  .actions { display: flex; gap: 6px; flex: none; align-items: flex-start; }
+  details.menu { position: relative; }
+  details.menu summary { list-style: none; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+  details.menu summary::-webkit-details-marker { display: none; }
+  details.menu[open] summary { color: var(--ink); border-color: var(--accent); }
+  .menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px; box-shadow: 0 6px 20px rgb(0 0 0 / .15); width: max-content; }
+  .menu-pop .row { display: flex; gap: 4px; align-items: center; margin: 2px 0; }
+  .menu-pop .lbl { color: var(--muted); font-size: 12px; width: 52px; }
+  .menu-pop button { font: inherit; font-size: 12px; color: var(--ink); background: none; border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; cursor: pointer; }
+  .menu-pop button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .menu-pop button:disabled { opacity: .45; cursor: default; }
+  .menu-pop button.danger:hover, .btn.danger:hover { color: var(--red); border-color: var(--red); }
+  form.qform .sub { flex: 1; }
+  li.fresh { animation: fresh 2.5s ease-out; }
+  @keyframes fresh { from { background: color-mix(in srgb, var(--accent) 18%, transparent); } to { background: transparent; } }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--bg); border-radius: 8px; padding: 8px 14px; display: none; gap: 12px; align-items: center; max-width: calc(100vw - 32px); box-shadow: 0 6px 20px rgb(0 0 0 / .25); z-index: 10; }
+  #toast.show { display: flex; }
+  #toast.error { background: var(--red); color: #fff; }
+  #toast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #toast button { font: inherit; font-weight: 600; background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; flex: none; }
+  .hint { color: var(--muted); font-size: 12px; padding: 0 24px; }
+  #addTo { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; }
+  .tabs .sep { width: 1px; background: var(--line); margin: 2px 4px; }
+  .board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .col { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-width: 0; }
+  .col h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 2px 4px 8px; display: flex; gap: 6px; }
+  .col.in-progress h3 { color: var(--amber); } .col.in-review h3 { color: var(--accent); } .col.completed h3 { color: var(--green); }
+  .card.done-card { opacity: .7; }
+  .card.done-card .title { text-decoration: line-through; text-decoration-color: var(--muted); }
+  .card.done-card:hover { opacity: 1; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .card .top { display: flex; gap: 8px; align-items: flex-start; }
+  .card .row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; justify-content: flex-end; }
+  .btn { font: inherit; font-size: 12px; color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+  .btn:hover { color: var(--accent); border-color: var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+  .chip { font: inherit; font-size: 12px; color: var(--ink); background: none; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; cursor: pointer; }
+  .chip[aria-pressed=true] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); font-weight: 600; }
+  .chip span { color: var(--muted); margin-left: 4px; }
+  .area h3 { font-size: 13px; margin: 14px 0 4px; display: flex; gap: 8px; align-items: center; }
+  .area:first-child h3 { margin-top: 0; }
+  .impact { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 6px; flex: none; margin-top: 2px; border: 1px solid currentColor; }
+  .impact.high { color: var(--red); } .impact.medium { color: var(--amber); } .impact.low { color: var(--muted); }
+  .status { font-size: 11px; font-weight: 600; color: var(--amber); }
+  .team-tag { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 7px; color: var(--t); background: color-mix(in srgb, var(--t) 14%, transparent); }
+  .t-dev { --t: #d9730d; } .t-product { --t: #9065b0; } .t-other { --t: var(--accent); }
+  .chip.team-chip[aria-pressed=true] { border-color: var(--t); background: color-mix(in srgb, var(--t) 14%, transparent); }
+  .chips .lbl { font-size: 12px; color: var(--muted); align-self: center; width: 44px; }
+  .backlog-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; }
+  .backlog-head .meta { flex: 1; margin: 0; }
+  form.bform { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 14px; background: var(--bg); }
+  form.bform > label, form.bform .field { display: grid; gap: 3px; font-size: 12px; color: var(--muted); font-weight: 600; }
+  form.bform .seg label { display: inline-block; }
+  .seg .impact-high { --t: var(--red); } .seg .impact-medium { --t: var(--amber); } .seg .impact-low { --t: var(--muted); }
+  form.bform .full { grid-column: 1 / -1; }
+  form.bform input, form.bform textarea, form.bform select { font: inherit; font-size: 13px; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-weight: 400; }
+  form.bform input:focus, form.bform textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  form.bform .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  form.bform .seg input { display: none; }
+  form.bform .seg span { display: inline-block; font-size: 12px; font-weight: 600; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer; color: var(--muted); }
+  form.bform .seg input:checked + span { color: var(--t, var(--ink)); border-color: var(--t, var(--accent)); background: color-mix(in srgb, var(--t, var(--accent)) 14%, transparent); }
+  form.bform .row { display: flex; gap: 6px; align-items: center; }
+  form.bform .primary { font: inherit; font-size: 12px; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 6px; padding: 5px 14px; cursor: pointer; }
+  @media (max-width: 600px) { form.bform { grid-template-columns: 1fr; } }
+  [draggable=true] { cursor: grab; }
+  [draggable=true]:active { cursor: grabbing; }
+  .drag-src { opacity: .4; }
+  .col.over, .zone.over { outline: 2px dashed var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .col { min-height: 120px; transition: background .1s; }
+  .zone { border-radius: 6px; padding: 0 4px; margin: 0 -4px; transition: background .1s; }
+  .zone.empty { display: none; }
+  body.dragging-q .zone.empty { display: block; padding: 4px; }
+  body.dragging-q .zone.empty ul { min-height: 28px; border: 1px dashed var(--line); border-radius: 6px; }
+  .grip { color: var(--muted); opacity: .5; font-size: 12px; margin-top: 3px; flex: none; user-select: none; }
+  li:hover > .grip { opacity: 1; }
+  .approach { margin-top: 6px; padding: 6px 10px; border-left: 3px solid var(--green); background: color-mix(in srgb, var(--green) 8%, transparent); border-radius: 0 6px 6px 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .approach b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--green); margin-bottom: 2px; }
+  form.qform { flex: 1; display: grid; gap: 8px; padding: 4px 0; }
+  form.qform label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); font-weight: 600; }
+  form.qform textarea, form.qform input { font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; resize: vertical; font-weight: 400; }
+  form.qform textarea:focus, form.qform input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  form.qform .row { display: flex; gap: 6px; align-items: center; }
+  form.qform .primary { font: inherit; font-size: 12px; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+  @media (max-width: 1100px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { .board { grid-template-columns: 1fr; } }
+  .teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+  .team { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+  .team h3 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: center; text-transform: uppercase; letter-spacing: .03em; }
+  .side { font-size: 11px; font-weight: 600; text-transform: none; letter-spacing: 0; border-radius: 4px; padding: 1px 6px; color: var(--muted); border: 1px solid var(--line); }
+  .team h4 { font-size: 12px; color: var(--muted); margin: 10px 0 2px; font-weight: 600; }
+  .team h4.waiting { color: var(--amber); } .team h4.to-ask { color: var(--accent); } .team h4.in-review { color: var(--green); }
+  @media (max-width: 480px) { main { grid-template-columns: 1fr; padding: 0 16px 24px; } header, .stats, .hint { padding-left: 16px; padding-right: 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>todo-brain</h1>
+  <span class="sub" id="today"></span>
+  <span class="grow"></span>
+  <select id="addTo" title="Add as a task or park in the backlog"><option value="work">Task</option><option value="backlog">Backlog</option></select>
+  <input id="add" placeholder="Add a task — e.g. Reply to Moris p2 tomorrow 30m #hul" autocomplete="off">
+  <label class="sub">Focus hours <input type="number" id="hours" min="0.5" max="16" step="0.5" value="6"></label>
+  <input type="search" id="q" placeholder="Filter everything…">
+</header>
+<div class="hint">Shortcuts: <b>n</b> add · <b>/</b> filter · <b>Esc</b> leave a field</div>
+<div id="err"></div>
+<div class="stats" id="stats"></div>
+<main>
+  <section class="wide"><h2>Work</h2>
+    <div class="tabs" role="tablist" id="tabs">
+      <button role="tab" data-tab="plan">Today's plan<span class="count" id="planCount"></span></button>
+      <button role="tab" data-tab="due">Due / overdue<span class="count" id="dueCount"></span></button>
+      <button role="tab" data-tab="tasks">All, ranked<span class="count" id="tasksCount"></span></button>
+      <span class="sep"></span>
+      <button role="tab" data-tab="board">Board</button>
+      <button role="tab" data-tab="backlog">Backlog<span class="count" id="backlogCount"></span></button>
+    </div>
+    <div id="planBar"></div><div id="taskView"></div></section>
+  <section class="wide"><h2>Open questions, by team <span class="count" id="questionsCount"></span></h2><div id="questions"></div></section>
+  <section class="wide"><h2>File locations <span class="count" id="locationsCount"></span></h2><ul id="locations"></ul></section>
+</main>
+<div id="toast" role="status"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const fmtMin = (m) => { const h = Math.floor(m / 60), r = m % 60; return h && r ? `${h}h${r}m` : h ? `${h}h` : `${r}m`; };
+const age = (iso) => { if (!iso) return ''; const d = Math.floor((Date.now() - Date.parse(iso)) / 864e5); return d <= 0 ? 'today' : d === 1 ? '1 day old' : `${d} days old`; };
+const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+
+// Web links open in a new tab; Teams / Outlook / mail links hand off to the desktop app.
+const APP_LINKS = [[/^(ms)?teams:/i, 'open in Teams'], [/^(ms-)?outlook:/i, 'open in Outlook'], [/^mailto:/i, 'open mail']];
+function safeLink(u) {
+  if (!u) return '';
+  if (/^https?:\/\//i.test(u)) return `<a href="${esc(u)}" target="_blank" rel="noopener">open ↗</a>`;
+  const app = APP_LINKS.find(([re]) => re.test(u));
+  return app ? `<a href="${esc(u)}">${app[1]} ↗</a>` : '';
+}
+
+let state, lastJson = '', query = '';
+let tab = store.get('tb-tab', 'plan');
+let area = store.get('tb-area', '');  // backlog area filter; '' = all
+const expanded = new Set();     // ids whose notes are open
+const fresh = new Set();        // ids added just now, flashed once
+const pendingDone = new Map();  // id → { timer, title } while Undo is still possible
+let openMenu = null;            // id whose ⋯ menu is open, kept across re-renders
+let editingId = null;           // question open in the edit form
+let draft = null;               // its unsaved field values, kept across re-renders
+let drag = null;                // { kind: 'task' | 'q', id } while dragging
+let pendingRender = false;      // data arrived while editing or dragging; render when done
+let addingBacklog = false;      // the Backlog tab's add form is open
+let backlogDraft = null;        // its unsaved values
+let teamFilter = store.get('tb-team', '');  // backlog team filter; '' = all, 'none' = no team
+const busy = () => drag || editingId || addingBacklog;
+$('hours').value = store.get('tb-hours', 6);
+
+const hit = (item) => !pendingDone.has(item.id) && (!query || query.split(/\s+/).every((w) =>
+  [item.title, item.notes, item.source, ...(item.labels || [])].join(' ').toLowerCase().includes(w)));
+
+function dueText(t) {
+  if (t.daysLeft === undefined) return '';
+  if (t.daysLeft < 0) return `<span class="overdue">overdue ${-t.daysLeft}d</span>`;
+  if (t.daysLeft === 0) return `<span class="today">due today</span>`;
+  return `due ${esc(t.due.slice(0, 10))}`;
+}
+
+// ado-<id> labels link to the Azure DevOps work item.
+const ADO = 'https://dev.azure.com/xavica/Qwipo%20B2B/_workitems/edit/';
+const labelsHtml = (labels, skip = []) => (labels || []).filter((l) => !skip.includes(l)).map((l) => {
+  const ado = /^ado-(\d+)$/.exec(l);
+  return ado ? `<a href="${ADO}${ado[1]}" target="_blank" rel="noopener">ADO ${ado[1]} ↗</a>` : '#' + esc(l);
+}).join(' ');
+const STATUS = { todo: 'To-do', 'in-progress': 'In progress', 'in-review': 'In review' };
+const statusOf = (t) => t.status || 'todo';
+const ago = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 6e4); return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`; };
+
+const notesHtml = (item) => item.notes
+  ? `<div class="notes ${expanded.has(item.id) ? 'open' : 'clamp'}" data-notes="${esc(item.id)}" title="${expanded.has(item.id) ? 'Click to collapse' : 'Click to expand'}">${esc(item.notes)}</div>` : '';
+
+function menuHtml(t) {
+  const id = esc(t.id);
+  const prio = [1, 2, 3, 4].map((n) => `<button data-act="prio" data-id="${id}" data-v="${n}" ${t.priority === 'P' + n ? 'disabled' : ''}>P${n}</button>`).join('');
+  const snooze = [['tomorrow', 'Tomorrow'], ['in 3 days', '+3 days'], ['next week', 'Next week']]
+    .map(([v, l]) => `<button data-act="due" data-id="${id}" data-v="${v}">${l}</button>`).join('');
+  return `<details class="menu" data-menu="${id}" ${openMenu === t.id ? 'open' : ''}><summary title="Snooze, change priority or park">⋯</summary>
+    <div class="menu-pop"><div class="row"><span class="lbl">Snooze</span>${snooze}</div><div class="row"><span class="lbl">Priority</span>${prio}</div>
+    <div class="row"><span class="lbl">Park</span><button data-act="park" data-id="${id}">Move to backlog</button></div>
+    <div class="row"><span class="lbl">Remove</span><button class="danger" data-act="delete" data-id="${id}">Delete for good</button></div></div></details>`;
+}
+
+function taskLi(t, extra = '') {
+  return `<li class="${fresh.has(t.id) ? 'fresh' : ''}">
+    <span class="pill ${esc(t.priority)}">${esc(t.priority)}</span>
+    <div class="body">
+      <div class="title">${esc(t.title)}</div>
+      <div class="meta">${[t.status && `<span class="status">${STATUS[t.status]}</span>`, dueText(t), t.estimate && `⏱ ${esc(t.estimate)}`, extra, t.source && `from ${esc(t.source)}`,
+        labelsHtml(t.labels), safeLink(t.link)].filter(Boolean).join('<span>·</span>')}</div>
+      <div class="meta">why: ${esc(t.why)}</div>
+      ${notesHtml(t)}
+    </div>
+    <span class="score" title="score">${t.score}</span>
+    <span class="actions">${menuHtml(t)}<button class="done" data-id="${esc(t.id)}">Done</button></span>
+  </li>`;
+}
+
+// Fills a list and its count; items marked done (Undo still possible) are hidden.
+// The target is a <ul>, or a container that gets a <ul> (the shared task view).
+function fill(id, items, render, emptyText, countId = id + 'Count', listId = id) {
+  const open = items.filter((i) => !pendingDone.has(i.id));
+  const shown = open.filter(hit);
+  $(countId).textContent = shown.length === open.length ? open.length : `${shown.length}/${open.length}`;
+  if (!listId) return;
+  const lis = shown.length ? shown.map(render).join('') : `<li class="empty">${esc(emptyText)}</li>`;
+  $(listId).innerHTML = $(listId).tagName === 'UL' ? lis : `<ul>${lis}</ul>`;
+}
+
+// Question labels: first team label = its team; waiting / to-ask = where it stands.
+const Q_STATES = ['waiting', 'to-ask', 'in-review'];
+const isTeamLabel = (l) => !['internal', 'external', ...Q_STATES].includes(l) && !l.startsWith('from-');
+const teamOf = (q) => (q.labels || []).find(isTeamLabel) || 'other';
+function withTeam(labels, team) {
+  const i = labels.findIndex(isTeamLabel);
+  const rest = i === -1 ? labels : labels.filter((_, j) => j !== i);
+  return team && team !== 'other' ? [team, ...rest] : rest;
+}
+const toLabel = (s) => String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+function questionLi(q) {
+  if (editingId === q.id) return questionForm(q);
+  const id = esc(q.id);
+  return `<li draggable="true" data-drag="q" data-id="${id}" class="${fresh.has(q.id) ? 'fresh' : ''}"><span class="grip" title="Drag to another team or section">⋮⋮</span>
+    <div class="body"><div class="title">${esc(q.title)}</div>
+    <div class="meta">${[esc(age(q.createdAt)), q.source && `from ${esc(q.source)}`, safeLink(q.link)].filter(Boolean).join('<span>·</span>')}</div>
+    ${notesHtml(q)}
+    ${q.approach ? `<div class="approach"><b>Recommended approach</b>${esc(q.approach)}</div>` : ''}</div>
+    <span class="actions">${q.approach ? '' : `<button class="btn" data-act="qedit" data-id="${id}" data-focus="approach">+ Approach</button>`}
+      <button class="btn" data-act="qedit" data-id="${id}">Edit</button>
+      <button class="btn danger" data-act="delete" data-id="${id}" title="Delete this question for good">Delete</button></span></li>`;
+}
+
+function questionForm(q) {
+  const v = draft && draft.id === q.id ? draft : { title: q.title, notes: q.notes || '', approach: q.approach || '', team: teamOf(q) === 'other' ? '' : teamOf(q) };
+  const teams = [...new Set(state.questionGroups.map((g) => g.team).filter((t) => t !== 'other'))];
+  return `<li class="editing"><form class="qform" data-id="${esc(q.id)}">
+    <label>Question<textarea name="title" rows="2" required>${esc(v.title)}</textarea></label>
+    <label>Notes / context<textarea name="notes" rows="2">${esc(v.notes)}</textarea></label>
+    <label>Recommended approach / solution<textarea name="approach" rows="3" placeholder="What we propose, or how we plan to solve it">${esc(v.approach)}</textarea></label>
+    <label>Team<input name="team" list="teamList" value="${esc(v.team)}" placeholder="e.g. kranthi, tcpl"><datalist id="teamList">${teams.map((t) => `<option value="${esc(t)}">`).join('')}</datalist></label>
+    <div class="row"><button class="primary" type="submit">Save</button><button class="btn" type="button" data-act="qcancel">Cancel</button>
+      <button class="btn danger" type="button" data-act="delete" data-id="${esc(q.id)}" style="margin-left:auto">Delete</button>
+      <span class="sub" style="font-size:12px">⌘/Ctrl + Enter saves · Esc cancels</span></div>
+  </form></li>`;
+}
+
+function saveDraft() {
+  const f = document.querySelector('form.qform');
+  if (f) draft = { id: f.dataset.id, ...Object.fromEntries(new FormData(f)) };
+  const b = document.querySelector('form.bform');
+  if (b) backlogDraft = Object.fromEntries(new FormData(b));
+}
+
+function startEdit(id, focus = 'title') {
+  saveDraft();
+  editingId = id;
+  draft = null;
+  render();
+  const field = document.querySelector(`form.qform [name=${focus}]`);
+  if (field) { field.focus(); field.setSelectionRange?.(field.value.length, field.value.length); }
+}
+
+function stopEdit() {
+  editingId = null;
+  draft = null;
+  render();
+}
+
+async function saveQuestion(form) {
+  const q = state.questions.find((x) => x.id === form.dataset.id);
+  if (!q) return stopEdit();
+  const f = Object.fromEntries(new FormData(form));
+  const patch = { title: f.title, notes: f.notes, approach: f.approach };
+  const team = toLabel(f.team || '') || 'other';
+  if (team !== teamOf(q)) patch.labels = withTeam(q.labels || [], team);
+  form.querySelectorAll('button, textarea, input').forEach((el) => { el.disabled = true; });
+  try {
+    await post(`/api/items/${encodeURIComponent(q.id)}/update`, patch);
+    editingId = null;
+    draft = null;
+    fresh.add(q.id);
+    toast('<span>Question saved</span>');
+    await load(true);
+  } catch (e) {
+    form.querySelectorAll('button, textarea, input').forEach((el) => { el.disabled = false; });
+    toast(`<span>${esc(e.message)}</span>`, { error: true, ms: 6000 });
+  }
+}
+
+// One card per team: internal teams first, then external, then untagged.
+// Inside a card, "waiting" (they owe us an answer) comes before "to ask".
+function renderQuestions(groups, total) {
+  let shown = 0;
+  // Every section is a drop zone; empty ones only appear while a question is being dragged.
+  const part = (g, st, heading, items) => {
+    const hits = items.filter(hit);
+    shown += hits.length;
+    return `<div class="zone ${hits.length ? '' : 'empty'}" data-drop="q" data-team="${esc(g.team)}" data-state="${st}">
+      <h4 class="${st}">${esc(heading)} (${hits.length})</h4><ul>${hits.map(questionLi).join('')}</ul></div>`;
+  };
+  const cards = groups.map((g) => {
+    if (![...g.waiting, ...g.toAsk, ...g.inReview, ...g.untagged].some(hit)) return '';
+    const body = part(g, 'waiting', 'Waiting on them', g.waiting) + part(g, 'to-ask', 'We need to ask', g.toAsk)
+      + part(g, 'in-review', 'In review', g.inReview) + part(g, 'none', 'Not tagged', g.untagged);
+    return `<div class="team"><h3>${esc(g.team)}${g.side !== 'unknown' ? `<span class="side">${esc(g.side)}</span>` : ''}</h3>${body}</div>`;
+  }).join('');
+  total -= [...pendingDone.keys()].filter((id) => state.questions.some((q) => q.id === id)).length;
+  $('questionsCount').textContent = shown === total ? total : `${shown}/${total}`;
+  $('questions').innerHTML = cards ? `<div class="teams">${cards}</div>` : '<div class="empty">No open questions.</div>';
+}
+
+// Plan, due/overdue and the full ranking share one list; the tab picks which shows.
+function renderTasks(s) {
+  const p = s.plan;
+  const planExtra = (t) => `${fmtMin(t.minutes)}${t.estimateAssumed ? ' (assumed)' : ''}${t.mustDo ? ' · must do' : ''}`;
+  const tabs = {
+    plan: [p.items, (t) => taskLi(t, planExtra(t)), 'Nothing planned: no open tasks.'],
+    due: [s.dueTodayOrOverdue, (t) => taskLi(t), 'Nothing due today or overdue.'],
+    tasks: [s.tasks, (t) => taskLi(t), 'No open tasks.'],
+  };
+  if (!tabs[tab] && tab !== 'board' && tab !== 'backlog') tab = 'plan';
+  for (const [name, [items, render, empty]] of Object.entries(tabs)) fill(name, items, render, empty, name + 'Count', name === tab ? 'taskView' : null);
+  const backlogOpen = s.backlog.groups.flatMap((g) => g.items).filter((i) => !pendingDone.has(i.id));
+  $('backlogCount').textContent = backlogOpen.length;
+  if (tab === 'board') renderBoard(s.tasks);
+  if (tab === 'backlog') renderBacklog(s.backlog.groups);
+  document.querySelectorAll('#tabs button').forEach((b) => {
+    b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    b.classList.toggle('alert', b.dataset.tab === 'due' && s.dueTodayOrOverdue.some((t) => !pendingDone.has(t.id)));
+  });
+
+  const pct = Math.min(100, Math.round((p.plannedMinutes / p.capacityMinutes) * 100) || 0);
+  $('planBar').innerHTML = tab !== 'plan' ? '' : `<div class="bar ${p.overCapacity ? 'over' : ''}"><span style="width:${pct}%"></span></div>`
+    + (p.overCapacity ? `<div class="meta overdue">Must-do work alone exceeds ${fmtMin(p.capacityMinutes)}.</div>` : '');
+}
+
+// Kanban: To-do → In progress → In review → Completed (last two weeks).
+// Drag a card to change its status; dropping on Completed marks it done, and
+// dragging a completed card back out reopens it.
+function renderBoard(tasks) {
+  const open = tasks.filter(hit);
+  const done = (state.completed || []).filter(hit);
+  const order = Object.keys(STATUS);
+  const card = (t) => {
+    const i = order.indexOf(statusOf(t));
+    const move = (to, label) => `<button class="btn" data-act="status" data-id="${esc(t.id)}" data-v="${to}">${label}</button>`;
+    return `<div class="card ${fresh.has(t.id) ? 'fresh' : ''}" draggable="true" data-drag="task" data-id="${esc(t.id)}">
+      <div class="top"><span class="pill ${esc(t.priority)}">${esc(t.priority)}</span><div class="body"><div class="title">${esc(t.title)}</div>
+        <div class="meta">${[dueText(t), t.estimate && `⏱ ${esc(t.estimate)}`, labelsHtml(t.labels), safeLink(t.link)].filter(Boolean).join('<span>·</span>')}</div>
+        ${notesHtml(t)}</div></div>
+      <div class="row">${i > 0 ? move(order[i - 1], '← ' + STATUS[order[i - 1]]) : ''}${i < order.length - 1 ? move(order[i + 1], STATUS[order[i + 1]] + ' →') : ''}
+        ${menuHtml(t)}<button class="done" data-id="${esc(t.id)}">Done</button></div></div>`;
+  };
+  const doneCard = (t) => `<div class="card done-card ${fresh.has(t.id) ? 'fresh' : ''}" draggable="true" data-drag="task" data-id="${esc(t.id)}" data-done="1">
+      <div class="top"><span class="pill ${esc(t.priority)}">${esc(t.priority)}</span><div class="body"><div class="title">${esc(t.title)}</div>
+        <div class="meta">${[`✓ completed ${esc(ago(t.closedAt))}`, labelsHtml(t.labels), safeLink(t.link)].filter(Boolean).join('<span>·</span>')}</div></div></div>
+      <div class="row"><button class="btn" data-act="reopen" data-id="${esc(t.id)}">↺ Reopen</button>
+        <button class="btn danger" data-act="delete" data-id="${esc(t.id)}">Delete</button></div></div>`;
+  const col = (st, title, cards, render, empty) =>
+    `<div class="col ${st}" data-drop="task" data-status="${st}"><h3>${title} <span>${cards.length}</span></h3>${cards.map(render).join('') || `<div class="empty">${empty}</div>`}</div>`;
+  $('taskView').innerHTML = `<div class="board">${order.map((st) => col(st, STATUS[st], open.filter((t) => statusOf(t) === st), card, 'Drop a card here.')).join('')}
+    ${col('completed', 'Completed', done, doneCard, 'Nothing completed in the last 2 weeks.')}</div>`;
+}
+
+// Optional work, grouped by area and sorted by impact. Pull in = becomes a task with a due date.
+const IMPACT_P = { high: 1, medium: 2, low: 3 };
+const cap = (w) => w[0].toUpperCase() + w.slice(1);
+const teamTag = (t) => t ? `<span class="team-tag t-${state.backlog.teams.includes(t) ? esc(t) : 'other'}">${esc(cap(t))}</span>` : '';
+
+function backlogForm(areas) {
+  const v = backlogDraft || { impact: 'medium', team: '', area: area || '' };
+  const teams = state.backlog.teams;
+  return `<form class="bform">
+    <label class="full">What needs handling<input name="title" required placeholder="e.g. Handle ONDC schemes" value="${esc(v.title || '')}"></label>
+    <label>Area<input name="area" list="areaList" placeholder="e.g. ondc-catalog" value="${esc(v.area || '')}">
+      <datalist id="areaList">${areas.map((a) => `<option value="${esc(a)}">`).join('')}</datalist></label>
+    <div class="field">Impact<span class="seg">${['high', 'medium', 'low'].map((k) => `<label><input type="radio" name="impact" value="${k}" ${v.impact === k ? 'checked' : ''}><span class="impact-${k}">${cap(k)}</span></label>`).join('')}</span></div>
+    <div class="field full">Team<span class="seg">${['', ...teams].map((t) => `<label class="t-${t || 'other'}"><input type="radio" name="team" value="${esc(t)}" ${(v.team || '') === t ? 'checked' : ''}><span>${t ? cap(t) : 'No team'}</span></label>`).join('')}</span></div>
+    <label class="full">Notes<textarea name="notes" rows="2" placeholder="Context, links, who raised it">${esc(v.notes || '')}</textarea></label>
+    <div class="row full"><button class="primary" type="submit">Add to backlog</button><button class="btn" type="button" data-act="bcancel">Cancel</button>
+      <span class="sub" style="font-size:12px">⌘/Ctrl + Enter adds · Esc cancels</span></div>
+  </form>`;
+}
+
+function renderBacklog(groups) {
+  const visible = groups.map((g) => ({ ...g, items: g.items.filter((i) => !pendingDone.has(i.id)) })).filter((g) => g.items.length);
+  const all = visible.flatMap((g) => g.items);
+  const teamHit = (b) => !teamFilter || (teamFilter === 'none' ? !b.team : b.team === teamFilter);
+  if (area && !visible.some((g) => g.area === area)) area = '';
+  const chip = (a, label, n) => `<button class="chip" data-area="${esc(a)}" aria-pressed="${area === a}">${esc(label)}<span>${n}</span></button>`;
+  const areaChips = chip('', 'All', all.length) + visible.map((g) => chip(g.area, g.area, g.items.length)).join('');
+  const usedTeams = [...new Set(all.map((b) => b.team).filter(Boolean))];
+  const tchip = (t, label, n) => `<button class="chip team-chip t-${t && t !== 'none' && state.backlog.teams.includes(t) ? esc(t) : 'other'}" data-team-filter="${esc(t)}" aria-pressed="${teamFilter === t}">${esc(label)}<span>${n}</span></button>`;
+  const teamChips = tchip('', 'All', all.length) + usedTeams.map((t) => tchip(t, cap(t), all.filter((b) => b.team === t).length)).join('')
+    + (all.some((b) => !b.team) ? tchip('none', 'No team', all.filter((b) => !b.team).length) : '');
+  const card = (b) => {
+    const id = esc(b.id);
+    const pull = [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['fri', 'Friday'], ['next week', 'Next week'], ['', 'No date']]
+      .map(([v, l]) => `<button data-act="pull" data-id="${id}" data-v="${v}">${l}</button>`).join('');
+    const impact = Object.keys(IMPACT_P).map((k) => `<button data-act="impact" data-id="${id}" data-v="${IMPACT_P[k]}" ${b.impact === k ? 'disabled' : ''}>${cap(k)}</button>`).join('');
+    const teams = ['', ...state.backlog.teams].map((t) => `<button data-act="team" data-id="${id}" data-v="${esc(t)}" ${(b.team || '') === t ? 'disabled' : ''}>${t ? cap(t) : 'None'}</button>`).join('');
+    return `<li class="${fresh.has(b.id) ? 'fresh' : ''}"><span class="impact ${b.impact}" title="impact">${b.impact}</span>
+      <div class="body"><div class="title">${esc(b.title)}</div>
+        <div class="meta">${[teamTag(b.team), b.status && `<span class="status">${STATUS[b.status]}</span>`, b.estimate && `⏱ ${esc(b.estimate)}`,
+          labelsHtml((b.labels || []).filter((l) => !l.startsWith('team-')), [b.area]),
+          b.source && `from ${esc(b.source)}`, safeLink(b.link), esc(age(b.createdAt))].filter(Boolean).join('<span>·</span>')}</div>
+        ${notesHtml(b)}</div>
+      <span class="actions"><details class="menu" data-menu="${id}" ${openMenu === b.id ? 'open' : ''}><summary title="Pull into work, change impact or team">Pull in ▾</summary>
+        <div class="menu-pop"><div class="row"><span class="lbl">Due</span>${pull}</div><div class="row"><span class="lbl">Impact</span>${impact}</div>
+          <div class="row"><span class="lbl">Team</span>${teams}</div>
+          <div class="row"><span class="lbl">Remove</span><button class="danger" data-act="delete" data-id="${id}">Delete for good</button></div></div></details>
+        <button class="done" data-id="${id}" title="Remove from the backlog">Drop</button></span></li>`;
+  };
+  const body = visible.filter((g) => !area || g.area === area).map((g) => {
+    const hits = g.items.filter((b) => hit(b) && teamHit(b));
+    return hits.length ? `<div class="area"><h3>${esc(g.area)} <span class="count">${hits.length}</span></h3><ul>${hits.map(card).join('')}</ul></div>` : '';
+  }).join('');
+  $('taskView').innerHTML = `<div class="backlog-head"><div class="meta">Should be handled some day, not committed. These never count in the plan or as overdue until you pull them in.</div>
+      ${addingBacklog ? '' : '<button class="btn" data-act="badd">+ Add to backlog</button>'}</div>
+    ${addingBacklog ? backlogForm(visible.map((g) => g.area).filter((a) => a !== 'other')) : ''}
+    <div class="chips"><span class="lbl">Area</span>${areaChips}</div>
+    ${usedTeams.length || all.some((b) => !b.team) ? `<div class="chips"><span class="lbl">Team</span>${teamChips}</div>` : ''}
+    ${body || `<div class="empty">${all.length ? 'Nothing matches these filters.' : 'Backlog is empty. Add the first item above.'}</div>`}`;
+}
+
+function openBacklogForm() {
+  addingBacklog = true;
+  backlogDraft = null;
+  render();
+  document.querySelector('form.bform [name=title]')?.focus();
+}
+function closeBacklogForm() {
+  addingBacklog = false;
+  backlogDraft = null;
+  render();
+}
+async function addBacklog(form) {
+  const f = Object.fromEntries(new FormData(form));
+  form.querySelectorAll('button, input, textarea').forEach((el) => { el.disabled = true; });
+  try {
+    const b = await post('/api/backlog', f);
+    addingBacklog = false;
+    backlogDraft = null;
+    fresh.add(b.id);
+    toast(`<span>Added to backlog: ${esc([b.title, b.area, b.team && cap(b.team), b.impact + ' impact'].filter(Boolean).join(' · '))}</span>`);
+    await load(true);
+  } catch (e) {
+    form.querySelectorAll('button, input, textarea').forEach((el) => { el.disabled = false; });
+    toast(`<span>${esc(e.message)}</span>`, { error: true, ms: 6000 });
+  }
+}
+
+function render() {
+  saveDraft();
+  pendingRender = false;
+  const s = state;
+  $('today').textContent = new Date(s.today + 'T00:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  const p = s.plan;
+  const openTasks = s.tasks.filter((t) => !pendingDone.has(t.id)).length;
+  const due = s.dueTodayOrOverdue.filter((t) => !pendingDone.has(t.id)).length;
+  $('stats').innerHTML = [
+    ['Open tasks', openTasks],
+    ['Due / overdue', due, due > 0],
+    ['Open questions', s.questions.length],
+    ['Planned today', `${fmtMin(p.plannedMinutes)} / ${fmtMin(p.capacityMinutes)}`, p.overCapacity],
+    ['Unestimated', p.unestimated],
+    ['Backlog', `${s.backlog.total}${s.backlog.groups.flatMap((g) => g.items).some((i) => i.impact === 'high') ? ` · ${s.backlog.groups.flatMap((g) => g.items).filter((i) => i.impact === 'high').length} high` : ''}`],
+  ].map(([k, v, alert]) => `<div class="stat ${alert ? 'alert' : ''}"><b>${esc(v)}</b><span class="sub">${esc(k)}</span></div>`).join('');
+
+  renderTasks(s);
+  renderQuestions(s.questionGroups, s.questions.length);
+  fill('locations', s.locations, (l) => `<li><div class="body"><div class="title">${esc(l.title)}</div>
+    <div class="meta"><code>${esc(l.path)}</code>${l.exists ? '' : '<span class="missing">missing on disk</span>'}${(l.labels || []).filter((x) => x !== 'location').map((x) => '#' + esc(x)).join(' ')}</div></div></li>`, 'No file locations recorded.');
+  fresh.clear();
+}
+
+// Re-renders only when the data changed, so a background refresh keeps your
+// scroll position, open notes and open menus. `force` re-renders anyway.
+async function load(force = false) {
+  try {
+    const res = await fetch(`/api/state?hours=${encodeURIComponent($('hours').value)}`);
+    const text = await res.text();
+    if (!res.ok) throw new Error(JSON.parse(text).error || res.statusText);
+    $('err').textContent = '';
+    if (!force && text === lastJson) return;
+    lastJson = text;
+    state = JSON.parse(text);
+    if (busy() && !force) { pendingRender = true; return; }
+    render();
+  } catch (e) {
+    $('err').textContent = `Can't load data: ${e.message}. Is the dashboard server still running?`;
+  }
+}
+
+async function post(path, payload) {
+  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+let toastTimer;
+function toast(html, { error = false, ms = 4000 } = {}) {
+  const el = $('toast');
+  el.innerHTML = html;
+  el.className = 'show' + (error ? ' error' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, ms);
+}
+
+// Delete waits a few seconds before it is saved, so Undo just cancels it; it removes the
+// item for good. Done / Drop close the item (kept in history) at once, and Undo reopens it.
+const UNDO_MS = 5000;
+const ACTION_PATH = { close: 'close', delete: 'delete' };
+async function commitDone(id, keepalive = false) {
+  const p = pendingDone.get(id);
+  if (!p) return;
+  clearTimeout(p.timer);
+  pendingDone.delete(id);
+  const url = `/api/items/${encodeURIComponent(id)}/${ACTION_PATH[p.action]}`;
+  try {
+    if (keepalive) {
+      fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', keepalive: true });
+      return;
+    }
+    await post(url, {});
+  } catch (e) {
+    toast(`<span>Could not ${p.action === 'delete' ? 'delete' : 'mark done'} “${esc(p.title)}”: ${esc(e.message)}</span>`, { error: true });
+  }
+  load(true);
+}
+const findItem = (id) =>
+  state.tasks.find((x) => x.id === id) ? ['task', state.tasks.find((x) => x.id === id)]
+  : (state.completed || []).find((x) => x.id === id) ? ['completed', state.completed.find((x) => x.id === id)]
+  : state.backlog.groups.flatMap((g) => g.items).find((x) => x.id === id) ? ['backlog', state.backlog.groups.flatMap((g) => g.items).find((x) => x.id === id)]
+  : state.questions.find((x) => x.id === id) ? ['question', state.questions.find((x) => x.id === id)]
+  : [];
+async function markDone(id, action = 'close') {
+  const [kind, item] = findItem(id);
+  if (!item || pendingDone.has(id)) return;
+  if (editingId === id) { editingId = null; draft = null; }
+  openMenu = null;
+  if (action === 'close') {
+    // Saved straight away so it lands in Completed; Undo reopens it.
+    try {
+      await post(`/api/items/${encodeURIComponent(id)}/close`, {});
+      toast(`<span>${kind === 'backlog' ? 'Dropped' : 'Done'}: ${esc(item.title)}</span><button data-act="reopen" data-id="${esc(id)}">Undo</button>`, { ms: UNDO_MS });
+    } catch (e) {
+      toast(`<span>Could not mark “${esc(item.title)}” done: ${esc(e.message)}</span>`, { error: true });
+    }
+    return load(true);
+  }
+  pendingDone.set(id, { title: item.title, action, timer: setTimeout(() => commitDone(id), UNDO_MS) });
+  render();
+  const verb = action === 'delete' ? 'Deleted' : kind === 'backlog' ? 'Dropped' : 'Done';
+  toast(`<span>${verb}: ${esc(item.title)}</span><button data-undo="${esc(id)}">Undo</button>`, { ms: UNDO_MS });
+}
+function undoDone(id) {
+  const p = pendingDone.get(id);
+  if (!p) return;
+  clearTimeout(p.timer);
+  pendingDone.delete(id);
+  $('toast').className = '';
+  render();
+}
+window.addEventListener('pagehide', () => { for (const id of [...pendingDone.keys()]) commitDone(id, true); });
+
+async function updateTask(id, patch, what) {
+  openMenu = null;
+  try {
+    const t = await post(`/api/items/${encodeURIComponent(id)}/update`, patch);
+    toast(`<span>${esc(what)}: ${esc(t.title)}</span>`);
+  } catch (e) {
+    toast(`<span>${esc(e.message)}</span>`, { error: true });
+  }
+  load(true);
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('button.done, [data-act], [data-undo], [data-notes], [data-area], [data-team-filter], #tabs button');
+  if (!el) return;
+  if (el.matches('button.done')) markDone(el.dataset.id);
+  else if (el.dataset.undo) undoDone(el.dataset.undo);
+  else if (el.dataset.act === 'prio') updateTask(el.dataset.id, { priority: Number(el.dataset.v) }, `Now P${el.dataset.v}`);
+  else if (el.dataset.act === 'due') updateTask(el.dataset.id, { due: el.dataset.v }, `Snoozed to ${el.dataset.v}`);
+  else if (el.dataset.act === 'reopen') { $('toast').className = ''; reopen(el.dataset.id); }
+  else if (el.dataset.act === 'delete') markDone(el.dataset.id, 'delete');
+  else if (el.dataset.act === 'badd') openBacklogForm();
+  else if (el.dataset.act === 'bcancel') closeBacklogForm();
+  else if (el.dataset.act === 'team') {
+    const b = state.backlog.groups.flatMap((g) => g.items).find((x) => x.id === el.dataset.id);
+    if (b) updateTask(b.id, { labels: [...(b.labels || []).filter((l) => !l.startsWith('team-')), ...(el.dataset.v ? ['team-' + el.dataset.v] : [])] }, el.dataset.v ? `Team: ${cap(el.dataset.v)}` : 'Team removed');
+  }
+  else if (el.dataset.teamFilter !== undefined) { teamFilter = el.dataset.teamFilter; store.set('tb-team', teamFilter); render(); }
+  else if (el.dataset.act === 'qedit') startEdit(el.dataset.id, el.dataset.focus);
+  else if (el.dataset.act === 'qcancel') stopEdit();
+  else if (el.dataset.act === 'status') updateTask(el.dataset.id, { status: el.dataset.v }, STATUS[el.dataset.v]);
+  else if (el.dataset.act === 'park') updateTask(el.dataset.id, { bucket: 'backlog' }, 'Moved to backlog');
+  else if (el.dataset.act === 'impact') updateTask(el.dataset.id, { priority: Number(el.dataset.v) }, 'Impact changed');
+  else if (el.dataset.act === 'pull') updateTask(el.dataset.id, { bucket: 'work', ...(el.dataset.v ? { due: el.dataset.v } : {}) }, el.dataset.v ? `Pulled into work, due ${el.dataset.v}` : 'Pulled into work');
+  else if (el.dataset.area !== undefined) { area = el.dataset.area; store.set('tb-area', area); render(); }
+  else if (el.dataset.notes) {
+    if (getSelection().toString()) return; // let people select text in notes
+    expanded.has(el.dataset.notes) ? expanded.delete(el.dataset.notes) : expanded.add(el.dataset.notes);
+    render();
+  } else if (el.dataset.tab) { tab = el.dataset.tab; store.set('tb-tab', tab); render(); }
+});
+// Remember which ⋯ menu is open; only one at a time.
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!d.matches?.('details.menu')) return;
+  if (d.open) {
+    openMenu = d.dataset.menu;
+    document.querySelectorAll('details.menu[open]').forEach((o) => { if (o !== d) o.open = false; });
+  } else if (openMenu === d.dataset.menu) openMenu = null;
+}, true);
+document.addEventListener('pointerdown', (e) => {
+  if (!e.target.closest('details.menu')) document.querySelectorAll('details.menu[open]').forEach((o) => { o.open = false; });
+});
+
+$('add').addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter' || !e.target.value.trim()) return;
+  const input = e.target;
+  input.disabled = true;
+  try {
+    const bucket = $('addTo').value;
+    const t = await post('/api/tasks', { text: input.value, bucket });
+    input.value = '';
+    fresh.add(t.id);
+    toast(`<span>${bucket === 'backlog' ? 'Parked' : 'Added'}: ${esc([t.title, t.priority, t.due && 'due ' + t.due, t.estimate, ...(t.labels || []).map((l) => '#' + l)].filter(Boolean).join(' · '))}</span>`);
+    if (bucket === 'backlog') tab = 'backlog';
+    else if (tab === 'backlog' || (tab === 'due' && !t.due)) tab = 'tasks';
+    store.set('tb-tab', tab);
+    await load(true);
+  } catch (err) {
+    toast(`<span>${esc(err.message)}</span>`, { error: true, ms: 6000 });
+  } finally {
+    input.disabled = false;
+    input.focus();
+  }
+});
+
+// ── Drag and drop: board cards between status columns; questions between
+// sections (waiting / to ask) and between teams. Buttons stay as the fallback.
+function endDrag() {
+  drag = null;
+  document.body.classList.remove('dragging-task', 'dragging-q');
+  document.querySelectorAll('.drag-src, .over').forEach((el) => el.classList.remove('drag-src', 'over'));
+  if (pendingRender) render();
+}
+document.addEventListener('dragstart', (e) => {
+  const el = e.target.closest?.('[data-drag]');
+  if (!el || editingId) { if (el) e.preventDefault(); return; }
+  drag = { kind: el.dataset.drag, id: el.dataset.id };
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', el.dataset.id);
+  document.querySelectorAll('details.menu[open]').forEach((o) => { o.open = false; });
+  // Defer so the browser takes its drag image before the source fades and empty zones open.
+  requestAnimationFrame(() => { el.classList.add('drag-src'); document.body.classList.add(`dragging-${drag?.kind}`); });
+});
+document.addEventListener('dragover', (e) => {
+  if (!drag) return;
+  const zone = e.target.closest?.(`[data-drop="${drag.kind}"]`);
+  document.querySelectorAll('.over').forEach((o) => { if (o !== zone) o.classList.remove('over'); });
+  if (!zone) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  zone.classList.add('over');
+});
+document.addEventListener('drop', (e) => {
+  const d = drag;
+  const zone = d && e.target.closest?.(`[data-drop="${d.kind}"]`);
+  if (!zone) return;
+  e.preventDefault();
+  endDrag();
+  if (d.kind === 'task') dropTask(d.id, zone.dataset.status);
+  else dropQuestion(d.id, zone.dataset.team, zone.dataset.state);
+});
+document.addEventListener('dragend', endDrag);
+
+function dropTask(id, status) {
+  const done = (state.completed || []).find((x) => x.id === id);
+  if (done) { if (status !== 'completed') reopen(id, status); return; }
+  const t = state.tasks.find((x) => x.id === id);
+  if (!t || statusOf(t) === status) return;
+  if (status === 'completed') return markDone(id);
+  t.status = status === 'todo' ? undefined : status; // show it in place right away
+  render();
+  updateTask(id, { status }, STATUS[status]);
+}
+
+async function reopen(id, status) {
+  const t = (state.completed || []).find((x) => x.id === id) || findItem(id)[1];
+  try {
+    await post(`/api/items/${encodeURIComponent(id)}/reopen`, status ? { status } : {});
+    fresh.add(id);
+    toast(`<span>Reopened${status ? ` in ${STATUS[status]}` : ''}: ${esc(t?.title ?? '')}</span>`);
+  } catch (e) {
+    toast(`<span>Could not reopen: ${esc(e.message)}</span>`, { error: true });
+  }
+  load(true);
+}
+
+function dropQuestion(id, team, st) {
+  const q = state.questions.find((x) => x.id === id);
+  if (!q) return;
+  let labels = (q.labels || []).filter((l) => !Q_STATES.includes(l));
+  if (st !== 'none') labels.push(st);
+  if (team !== teamOf(q)) {
+    labels = withTeam(labels, team);
+    // Take the target team's side (internal / external) when it has one.
+    const side = state.questionGroups.find((g) => g.team === team)?.side;
+    if (side === 'internal' || side === 'external') labels = [...labels.filter((l) => l !== 'internal' && l !== 'external'), side];
+  }
+  if (labels.join() === (q.labels || []).join()) return;
+  const where = [team !== teamOf(q) && team, st === 'waiting' ? 'waiting on them' : st === 'to-ask' ? 'to ask' : st === 'in-review' ? 'in review' : st === 'none' && 'untagged'].filter(Boolean).join(' · ');
+  updateTask(id, { labels }, `Moved to ${where}`);
+}
+
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('form.qform, form.bform');
+  if (!form) return;
+  e.preventDefault();
+  form.matches('.bform') ? addBacklog(form) : saveQuestion(form);
+});
+document.addEventListener('keydown', (e) => {
+  const form = e.target.closest?.('form.qform, form.bform');
+  if (!form) return;
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); form.requestSubmit(); }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); form.matches('.bform') ? closeBacklogForm() : stopEdit(); }
+}, true);
+
+// Shortcuts: n = add, / = filter, Esc = leave the field (and close menus).
+document.addEventListener('keydown', (e) => {
+  const typing = e.target.closest?.('input, textarea, select');
+  if (e.key === 'Escape') { if (typing) e.target.blur(); document.querySelectorAll('details.menu[open]').forEach((o) => { o.open = false; }); return; }
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'n') { e.preventDefault(); $('add').focus(); }
+  if (e.key === '/') { e.preventDefault(); $('q').focus(); }
+});
+
+const ADD_HINT = { work: 'Add a task — e.g. Reply to Moris p2 tomorrow 30m #hul', backlog: 'Park in backlog — e.g. Handle ONDC schemes p1 #ondc-catalog (p1 high · p2 medium · p3 low)' };
+$('addTo').value = store.get('tb-add-to', 'work');
+$('add').placeholder = ADD_HINT[$('addTo').value] || ADD_HINT.work;
+$('addTo').addEventListener('change', (e) => { store.set('tb-add-to', e.target.value); $('add').placeholder = ADD_HINT[e.target.value]; $('add').focus(); });
+$('q').addEventListener('input', (e) => { query = e.target.value.trim().toLowerCase(); if (state) render(); });
+$('hours').addEventListener('change', (e) => { store.set('tb-hours', e.target.value); load(true); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+
+load(true);
+setInterval(() => { if (!document.hidden) load(); }, 15000);
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "todo-brain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal MCP server: Todoist-backed priorities, open questions and a memory bank for Claude",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dashboard": "bun run src/dashboard/server.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "typescript": "7.0.2"
+  }
+}
