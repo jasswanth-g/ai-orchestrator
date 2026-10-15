@@ -94,16 +94,39 @@ bun run dashboard   # http://127.0.0.1:4319
 - New channel → nothing to build; see `src/sources/README.md`.
 - Structured fields (`source`, `link`, `path`) live in the item description footer (`src/store/meta.ts`).
 
-## Bug intake (Azure DevOps events)
+## Agents server (`bun run agents`)
 
-Azure DevOps pushes Bug events to a local receiver, which turns them into
-todo-brain tasks. No polling: one catch-up query runs on start for anything
-missed while the Mac was off.
+One process for every agent input: a local event server (127.0.0.1:4320) with a
+route per source, plus the WhatsApp bridge as a child process. Each source
+catches up on start, so nothing is lost while it was down. No polling.
 
 ```
-ADO service hook ──HTTPS──► tunnel ──► 127.0.0.1:4320/hooks/ado ──► BugIntake ──► Store
- (created / updated / commented, Bug only)      src/ado-webhook.ts      src/ado/intake.ts
+Azure DevOps service hooks ─HTTPS─► tunnel ─┐
+                                            ├─► src/agents.ts ─► intake ─► Store (todo-brain)
+bridges/whatsapp (child) ─── localhost ─────┘   /hooks/ado, /hooks/whatsapp
 ```
+
+```bash
+export ADO_HOOK_SECRET=$(openssl rand -hex 24)     # ADO route on when set
+export ADO_MY_APPS="eB2B Buyer App,Seller App"      # optional
+export WHATSAPP_WATCH_CHATS="EB2b tech group,Qwipo X TCPL : ONDC"
+export WHATSAPP_KEYWORDS="Jasswanth"
+bun run agents
+bun run ado-hooks create https://<public-host>      # one-time, after the tunnel is up
+```
+
+| Env var | Meaning |
+|---|---|
+| `AGENTS_PORT` | Event server port, default 4320 |
+| `ADO_HOOK_SECRET` | Basic-auth password on the ADO service hooks; unset = ADO off |
+| `ADO_MY_APPS` | `Custom.Application` values I own (new bugs there become tasks) |
+| `ADO_ORG` / `ADO_PROJECT` | Default `https://dev.azure.com/xavica` / `Qwipo B2B` |
+| `WHATSAPP_BRIDGE` | `off` = don't start the bridge |
+| `WHATSAPP_WATCH_CHATS` | Chat names or JIDs to act on; empty = every chat, 1:1 included |
+| `WHATSAPP_KEYWORDS` | Words that make a group message "for me" |
+| `WHATSAPP_STORE_DIR` | Bridge session + `messages.db`; default the whatsapp-mcp store, so the WhatsApp MCP server keeps reading the same data |
+
+### Azure DevOps bugs
 
 | Event | Task |
 |---|---|
@@ -115,19 +138,23 @@ ADO service hook ──HTTPS──► tunnel ──► 127.0.0.1:4320/hooks/ado 
 
 Every task carries `ado-<id>`, `bug`, `to-investigate` and the app label — the
 Investigator agent's queue. Auth to ADO uses the `az login` session.
+`bun run ado-hooks list | create <url> | delete` manages the service hooks.
 
-```bash
-export ADO_HOOK_SECRET=$(openssl rand -hex 24)   # basic-auth password ADO sends
-export ADO_MY_APPS="eB2B Buyer App,Seller App"    # optional
-bun run ado-webhook                               # receiver + catch-up
-<start a tunnel to 127.0.0.1:4320 with a stable public URL>
-bun run ado-hooks create https://<public-host>    # one-time: 3 service hooks
-bun run ado-hooks list | delete
-```
+### WhatsApp
 
-| Env var | Meaning |
-|---|---|
-| `ADO_HOOK_SECRET` | Required. Basic-auth password on the service hooks |
-| `ADO_HOOK_PORT` | Receiver port, default 4320 |
-| `ADO_MY_APPS` | Comma list of `Custom.Application` values I own |
-| `ADO_ORG` / `ADO_PROJECT` | Default `https://dev.azure.com/xavica` / `Qwipo B2B` |
+`bridges/whatsapp` is the whatsmeow bridge from
+[lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp) (MIT, see its
+LICENSE) plus `forward.go`, which POSTs each live message in watched chats to
+`/hooks/whatsapp`. The agents server builds it with Go, starts it, restarts it if
+it exits, and refuses to start it while another bridge holds port 8080 — two
+clients on one session conflict, so stop the whatsapp-mcp bridge first.
+
+**Connect / re-link:** open `http://127.0.0.1:4320/whatsapp` — link status,
+the pairing QR (scan from WhatsApp → Settings → Linked devices), a new QR when
+one expires, and Unlink. The page talks to the bridge through the agents server
+with a per-run secret; it only answers on localhost.
+
+A message is **for me** when it mentions me, replies to me, is a 1:1 chat, or
+contains one of `WHATSAPP_KEYWORDS`. One open task per chat (`wa-<chat>`)
+collects those messages as comments and carries `needs-reply`; my own reply in
+that chat removes it.
