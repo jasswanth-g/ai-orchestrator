@@ -4,141 +4,86 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agents Dashboard</title>
+<link rel="stylesheet" href="/assets/shell.css">
 <style>
-  :root {
-    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5d6673; --line: #e3e6ea; --soft: #f0f2f5;
-    --ok: #1a7f4b; --ok-bg: #e5f5ec; --warn: #9a6200; --warn-bg: #fdf3e1; --bad: #b42318; --bad-bg: #fdecea;
-    --info: #1f5fbf; --info-bg: #e7effc; --idle: #5d6673; --idle-bg: #eceef1; --accent: #1f6feb;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0f1216; --card: #171b21; --text: #e6e9ed; --muted: #9aa4b1; --line: #2a3038; --soft: #1d222a;
-      --ok: #4ccf8a; --ok-bg: #12301f; --warn: #f0b44c; --warn-bg: #33270f; --bad: #ff7a6e; --bad-bg: #3a1714;
-      --info: #7fb0ff; --info-bg: #142540; --idle: #9aa4b1; --idle-bg: #242a33; --accent: #4b8df8;
-    }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  main { max-width: 1100px; margin: 28px auto 48px; padding: 0 16px; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
-  h1 { font-size: 22px; margin: 0; }
-  h2 { font-size: 15px; margin: 0 0 12px; }
-  .muted { color: var(--muted); }
-  .links { display: flex; gap: 16px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  /* Page-specific; tokens and base components come from shell.css. */
+  .page-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 16px; }
-  .pipeline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-bottom: 16px; }
-  .stage { padding: 12px 16px; border: 1px solid var(--line); background: var(--card); }
-  .stage:first-child { border-radius: 12px 0 0 12px; }
-  .stage:last-child { border-radius: 0 12px 12px 0; }
-  .stage + .stage { border-left: none; }
-  .stage b { display: block; }
-  @media (max-width: 640px) {
-    .pipeline { grid-template-columns: 1fr; }
-    .stage:first-child { border-radius: 12px 12px 0 0; }
-    .stage:last-child { border-radius: 0 0 12px 12px; }
-    .stage + .stage { border-left: 1px solid var(--line); border-top: none; }
-  }
-  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: 12px; white-space: nowrap; }
-  .dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .ok { color: var(--ok); background: var(--ok-bg); }
-  .warn { color: var(--warn); background: var(--warn-bg); }
-  .bad { color: var(--bad); background: var(--bad-bg); }
-  .info { color: var(--info); background: var(--info-bg); }
-  .idle { color: var(--idle); background: var(--idle-bg); }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 12px 0 0; }
+  .pipeline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stage { padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
+  .stage b { display: block; font-weight: 600; }
+  .stage .muted { font-size: 12px; }
+  .stage.link { cursor: pointer; }
+  .stage.link:hover { background: var(--soft); }
+  @media (max-width: 760px) { .pipeline { grid-template-columns: 1fr; } }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 14px 0 0; font-size: 13px; }
   dt { color: var(--muted); }
   dd { margin: 0; overflow-wrap: anywhere; }
-  .counts { display: flex; gap: 18px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .counts { display: flex; gap: 22px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
   .counts div { display: flex; flex-direction: column; }
-  .counts b { font-size: 18px; font-variant-numeric: tabular-nums; }
-  .counts span { color: var(--muted); font-size: 12px; }
+  .counts b { font-size: 20px; font-weight: 550; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .counts span { color: var(--muted); font-size: 11px; }
   .section { margin-bottom: 16px; }
-  table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-  td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  tr:last-child td { border-bottom: none; }
   .tags { display: flex; gap: 4px; flex-wrap: wrap; }
-  .tag { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: var(--soft); color: var(--muted); white-space: nowrap; }
   .tag.hot { background: var(--warn-bg); color: var(--warn); font-weight: 600; }
-  .filters { display: flex; gap: 6px; flex-wrap: wrap; }
-  .filters button { font: inherit; font-size: 12px; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 999px; padding: 3px 12px; cursor: pointer; }
-  .filters button[aria-pressed="true"] { background: var(--text); color: var(--card); border-color: var(--text); }
-  .empty { color: var(--muted); padding: 12px 0; }
-  .when { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .filters { display: flex; gap: 4px; flex-wrap: wrap; padding: 3px; background: var(--soft); border-radius: 9px; }
+  .filters button { border: 0; background: none; color: var(--text-2); border-radius: 7px; padding: 5px 10px; }
+  .filters button[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: 0 1px 3px #0000000f; }
+  .when { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 12px; }
   .scroll { overflow-x: auto; }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; }
-  .actions button { font: inherit; font-size: 12px; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 6px; padding: 2px 10px; cursor: pointer; white-space: nowrap; }
-  .actions button.confirm { border-color: var(--ok); color: var(--ok); font-weight: 600; }
-  .actions button:disabled { opacity: .5; cursor: default; }
-  details summary { cursor: pointer; font-weight: 600; font-size: 15px; }
-  details[open] summary { margin-bottom: 8px; }
-  .since { color: var(--muted); font-size: 12px; margin-top: 6px; }
-  .panel { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
-  .panel input[type=search], .panel input[type=text], .note-form textarea, .note-form select { font: inherit; width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
-  .chatlist { max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; }
-  .chatlist label { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .actions button { padding: 5px 10px; white-space: nowrap; }
+  .actions button.confirm { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  details[open] > summary { margin-bottom: 8px; }
+  .card > details > summary { font-size: 15px; }
+  .since { color: var(--muted); font-size: 11px; margin-top: 8px; }
+  .panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .chatlist { max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 9px; margin: 8px 0; }
+  .chatlist label { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
   .chatlist label:last-child { border-bottom: none; }
   .chatlist label:hover { background: var(--soft); }
   .chatlist .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .chatlist .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
   .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .btn { font: inherit; font-weight: 600; font-size: 13px; border-radius: 8px; padding: 5px 12px; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--text); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .notes { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
-  .note { font-size: 13px; padding: 4px 8px; border-radius: 6px; background: var(--soft); display: flex; gap: 8px; align-items: flex-start; }
-  .note .kind { font-weight: 600; font-size: 11px; text-transform: uppercase; color: var(--muted); white-space: nowrap; padding-top: 1px; }
+  .notes { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .note { font-size: 13px; padding: 6px 10px; border-radius: 7px; background: var(--soft); display: flex; gap: 8px; align-items: flex-start; }
+  .note .kind { font-weight: 600; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); white-space: nowrap; padding-top: 2px; }
   .note.recommendation .kind { color: var(--ok); }
   .note .text { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .note button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
+  .note button { border: none; background: none; color: var(--muted); font-size: 14px; line-height: 1; padding: 0 2px; }
   .note-form { margin-top: 8px; display: grid; gap: 6px; }
-  .note-form textarea { min-height: 70px; resize: vertical; }
-  .report { background: var(--soft); border-radius: 10px; padding: 14px 16px; }
-  .report h3 { font-size: 13px; margin: 14px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
-  .report h3:first-of-type { margin-top: 10px; }
+  .note-form textarea { min-height: 72px; }
+  .report { background: var(--soft); border-radius: 12px; padding: 16px 18px; }
+  .report h3 { font-size: 11px; font-weight: 600; margin: 16px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
   .report p, .report li { margin: 0 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .report ul { margin: 0; padding-left: 18px; }
-  .report code { font-size: 12px; }
-  .change { border: 1px solid var(--line); border-radius: 8px; margin: 6px 0; overflow: hidden; background: var(--card); }
-  .change .path { padding: 4px 10px; font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  .change { border: 1px solid var(--line); border-radius: 9px; margin: 8px 0; overflow: hidden; background: var(--card); }
+  .change .path { padding: 6px 12px; font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
   .change .ba { display: grid; grid-template-columns: 1fr 1fr; }
-  .change pre { margin: 0; padding: 8px 10px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .change pre { margin: 0; padding: 10px 12px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .change pre.before { background: var(--bad-bg); }
   .change pre.after { background: var(--ok-bg); }
   @media (max-width: 640px) { .change .ba { grid-template-columns: 1fr; } }
-  .review { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
-  .review textarea { font: inherit; width: 100%; min-height: 70px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); resize: vertical; }
+  .review { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+  .review textarea { min-height: 72px; }
   pre.md { white-space: pre-wrap; font-size: 13px; margin: 0; }
-  .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
-  .tabs a { padding: 8px 14px; color: var(--muted); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-  .tabs a:hover { text-decoration: none; color: var(--text); }
-  .tabs a[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
-  .tabs .spacer { flex: 1; }
-  .stage.link { cursor: pointer; }
-  .stage.link:hover { background: var(--soft); }
-  .lead { font-size: 15px; margin: 8px 0 0; }
-  [hidden] { display: none !important; }
+  .lead { font-size: 15px; line-height: 1.6; margin: 10px 0 0; }
 </style>
 </head>
 <body>
-<main>
-  <header>
+<div class="app">
+<aside class="sidebar" id="sidebar"></aside>
+<div class="scrim"></div>
+<div class="workspace">
+<header class="topbar" id="topbar"></header>
+<main class="main-content">
+  <div class="page-heading">
     <div>
       <h1 id="pageTitle">Agents</h1>
-      <span id="updated" class="muted">Loading…</span>
+      <p id="pageSub"></p>
     </div>
-  </header>
-  <nav class="tabs">
-    <a href="/" data-tab="overview">Overview</a>
-    <a href="/messenger" data-tab="messenger">Messenger</a>
-    <a href="/investigator" data-tab="investigator">Investigator</a>
-    <span class="spacer"></span>
-    <a href="/whatsapp">WhatsApp connection</a>
-    <a id="todoLink" href="#">Tasks board</a>
-  </nav>
+  </div>
 
   <div class="pipeline" data-views="overview">
     <div class="stage link" data-go="/messenger"><div class="row"><b>Messenger</b><span id="messengerPill" class="pill dot idle">—</span></div><span class="muted">Turns bug events and WhatsApp messages into tasks (rules)</span></div>
@@ -232,6 +177,9 @@
     <div id="activityEmpty" class="empty" hidden>Nothing yet.</div>
   </section>
 </main>
+</div>
+</div>
+<script src="/assets/shell.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 
@@ -239,9 +187,13 @@ const $ = (id) => document.getElementById(id);
 const VIEW = { '/messenger': 'messenger', '/investigator': 'investigator' }[location.pathname] ?? 'overview';
 const TITLES = { overview: 'Agents', messenger: 'Messenger agent', investigator: 'Investigator agent' };
 document.querySelectorAll('[data-views]').forEach((n) => { if (!n.dataset.views.split(' ').includes(VIEW)) n.remove(); });
-document.querySelectorAll('[data-tab]').forEach((a) => { if (a.dataset.tab === VIEW) a.setAttribute('aria-current', 'page'); });
 document.querySelectorAll('[data-go]').forEach((n) => { n.onclick = () => (location.href = n.dataset.go); });
 document.getElementById('pageTitle').textContent = TITLES[VIEW];
+document.getElementById('pageSub').textContent = {
+  overview: 'Every agent at a glance: what came in, what needs you.',
+  messenger: 'Turns Azure DevOps bug events and WhatsApp messages into tasks.',
+  investigator: 'Root cause and fix reports per bug, each in its own iTerm session.',
+}[VIEW];
 document.title = `${TITLES[VIEW]} · Agents`;
 const has = (id) => !!document.getElementById(id);
 const el = (tag, props = {}, ...children) => {
@@ -333,6 +285,7 @@ function renderTasks(all) {
   if (VIEW === 'investigator') $('tasksTitle').firstChild.textContent = 'Bugs to investigate ';
   $('taskCount').textContent = tasks.length ? `(${tasks.length})` : '';
   $('tasksEmpty').hidden = tasks.length > 0;
+  $('tasksEmpty').textContent = VIEW === 'investigator' ? 'No bugs waiting for an investigation.' : 'No open tasks from the agents.';
   $('tasks').replaceChildren(...tasks.flatMap((t) => [el('tr', {},
     el('td', {}, t.link ? el('a', { href: t.link, target: '_blank', rel: 'noopener', textContent: t.title }) : t.title, el('div', { className: 'muted', textContent: `#${t.id} · P${t.priority}${t.status && t.status !== 'todo' ? ` · ${t.status}` : ''}` }), t.investigation ? investigationPill(t.investigation) : null, t.bugId ? bugNotes(t) : null),
     el('td', {}, el('span', { className: `pill ${t.source === 'whatsapp' ? 'ok' : 'info'}`, textContent: t.source === 'whatsapp' ? 'WhatsApp' : 'Azure DevOps' })),
@@ -536,7 +489,9 @@ function renderInvestigations(items) {
   if (!has('investigations')) return;
   $('invCount').textContent = items.length ? `(${items.length})` : '';
   $('invEmpty').hidden = items.length > 0;
-  $('knowledgePath').textContent = last.knowledgeFile ? `Repo knowledge: ${last.knowledgeFile}` : '';
+  // Just the file name; the full path (long, unbreakable) is in the tooltip.
+  $('knowledgePath').textContent = last.knowledgeFile ? 'Repo knowledge: REPOS.md' : '';
+  $('knowledgePath').title = last.knowledgeFile ?? '';
   $('investigations').replaceChildren(...items.flatMap((i) => {
     const t = { bugId: i.bugId, investigation: i, title: i.title, link: i.link, labels: [] };
     const [tone, label] = INV[i.status] ?? ['idle', i.status];
@@ -592,19 +547,22 @@ function closePicker() {
   $('pickChats').hidden = false;
 }
 
-$('pickChats').onclick = () => openPicker().catch((e) => ($('pickerMsg').textContent = e.message));
-$('chatSearch').oninput = drawChats;
-$('showDirect').onchange = drawChats;
-$('cancelPicker').onclick = closePicker;
-$('savePicker').onclick = async () => {
-  try {
-    await postJson('/api/settings/whatsapp', { watch: [...picker.selected], keywords: $('keywords').value.split(',') });
-    closePicker();
-    await refresh();
-  } catch (e) {
-    $('pickerMsg').textContent = e.message;
-  }
-};
+// The picker exists only on the Messenger page.
+if (has('pickChats')) {
+  $('pickChats').onclick = () => openPicker().catch((e) => ($('pickerMsg').textContent = e.message));
+  $('chatSearch').oninput = drawChats;
+  $('showDirect').onchange = drawChats;
+  $('cancelPicker').onclick = closePicker;
+  $('savePicker').onclick = async () => {
+    try {
+      await postJson('/api/settings/whatsapp', { watch: [...picker.selected], keywords: $('keywords').value.split(',') });
+      closePicker();
+      await refresh();
+    } catch (e) {
+      $('pickerMsg').textContent = e.message;
+    }
+  };
+}
 
 function renderSkipped(items) {
   if (!has('skippedCard')) return;
@@ -649,7 +607,6 @@ function renderActivity(items) {
 function render(d, force = false) {
   if (!d) return;
   last = d;
-  $('todoLink').href = d.todoDashboardUrl;
   renderSources(d.sources);
   // Don't wipe a note or review being typed; the next refresh after closing catches up.
   const typing = noteFormFor !== null || (feedbackBox && reportOpen && (feedbackBox.value || document.activeElement === feedbackBox));
@@ -659,7 +616,7 @@ function render(d, force = false) {
   }
   renderIgnored(d.ignoredBugs ?? []);
   renderActivity(d.activity);
-  $('updated').textContent = `Updated ${new Date(d.now).toLocaleTimeString()}`;
+  window.Shell?.setUpdated(`Updated ${new Date(d.now).toLocaleTimeString()}`);
 }
 
 async function refresh(force = false) {
@@ -669,7 +626,7 @@ async function refresh(force = false) {
     if (reportOpen) await loadReport(reportOpen).catch(() => {});
     render(d, force);
   } catch {
-    $('updated').textContent = 'Agents server not reachable — retrying…';
+    window.Shell?.setUpdated('Agents server not reachable — retrying…');
   }
 }
 refresh();

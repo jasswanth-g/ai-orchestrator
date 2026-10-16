@@ -16,6 +16,11 @@ import { listChats } from '../whatsapp/receiver.ts';
  */
 
 const page = Bun.file(new URL('./page.html', import.meta.url));
+/** Shared UI shell (sidebar, top bar, tokens), also used by the WhatsApp page. */
+const ASSETS: Record<string, { file: ReturnType<typeof Bun.file>; type: string }> = {
+  '/assets/shell.css': { file: Bun.file(new URL('./shell.css', import.meta.url)), type: 'text/css; charset=utf-8' },
+  '/assets/shell.js': { file: Bun.file(new URL('./shell.js', import.meta.url)), type: 'text/javascript; charset=utf-8' },
+};
 const AGENT_SOURCES = ['azure-devops', 'whatsapp'];
 /** One page, three views: the client shows the sections for its path. */
 const PAGES = new Set(['/', '/messenger', '/investigator']);
@@ -200,6 +205,8 @@ export function agentsDashboard(o: {
 
   return async function handle(req: Request): Promise<Response | undefined> {
     const url = new URL(req.url);
+    const asset = ASSETS[url.pathname];
+    if (asset) return new Response(asset.file, { headers: { 'Content-Type': asset.type, 'Cache-Control': 'no-cache' } });
     if (!PAGES.has(url.pathname) && !url.pathname.startsWith('/api/')) return undefined;
     if (!localHosts.has(req.headers.get('host') ?? '')) return new Response('forbidden', { status: 403 });
 

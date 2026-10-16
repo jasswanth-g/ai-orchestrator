@@ -12,7 +12,7 @@ import { errText, type Receiver } from './events/receiver.ts';
 import { SeenIds } from './events/seen.ts';
 import { resolvePath } from './tools/files.ts';
 import { BridgeSupervisor, bridgeSecret } from './whatsapp/bridge.ts';
-import { whatsappReceiver } from './whatsapp/receiver.ts';
+import { listChats, whatsappReceiver } from './whatsapp/receiver.ts';
 import { whatsappUi } from './whatsapp/ui.ts';
 
 /**
@@ -104,7 +104,15 @@ const bridge = bridgeOn
   ? // The bridge forwards every chat; the intake filters by the (editable) watch list.
     new BridgeSupervisor({ storeDir: waStoreDir, eventUrl: `http://127.0.0.1:${port}/hooks/whatsapp`, secret: waSecret, watch: [] })
   : undefined;
-const whatsappPage = whatsappUi({ bridge, watch: () => settings.whatsapp.watch, port });
+const whatsappPage = whatsappUi({
+  bridge,
+  port,
+  // Watched chats by name for the connection page (stored as JIDs).
+  watch: () => {
+    const chats = listChats(waStoreDir);
+    return settings.whatsapp.watch.map((w) => chats.find((c) => c.jid === w)?.name ?? w);
+  },
+});
 const dashboard = agentsDashboard({
   port,
   store,
