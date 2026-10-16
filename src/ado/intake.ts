@@ -3,6 +3,10 @@ import { toLabel } from '../tools/define.ts';
 import type { Item, Priority } from '../types.ts';
 import { type Bug, type BugEvent, htmlToText, OPEN_STATES } from './events.ts';
 
+/** Is this state still open for this work item type? (ADO state categories Proposed / InProgress.) */
+export type IsOpen = (type: string, state: string) => boolean;
+const fallbackIsOpen: IsOpen = (_type, state) => OPEN_STATES.includes(state);
+
 /**
  * Bug events → todo-brain tasks. One task per bug, found by its ado-<id>
  * label. The task is the Investigator's queue entry: `to-investigate` marks
@@ -24,8 +28,10 @@ export interface Me {
 export interface IntakeOptions {
   store: Store;
   me: Me;
-  /** Bugs I chose to ignore: no task, and later events are dropped. */
+  /** Items I chose to ignore: no task, and later events are dropped. */
   isIgnored?: (bugId: number) => boolean;
+  /** Per-type open states from ADO; defaults to the Bug states. */
+  isOpen?: IsOpen;
   /** Work item link, e.g. https://dev.azure.com/org/project/_workitems/edit/<id>. */
   bugUrl: (id: number) => string;
   now?: () => Date;
@@ -34,7 +40,6 @@ export interface IntakeOptions {
 export type Outcome = { bug: number; action: 'created' | 'annotated' | 'reopened' | 'ignored'; reason: string; taskId?: string };
 
 const adoLabel = (id: number) => `ado-${id}`;
-const isOpen = (b: Bug) => OPEN_STATES.includes(b.state);
 const toPriority = (p?: number): Priority | undefined => (p && p >= 1 && p <= 4 ? (p as Priority) : undefined);
 
 export class BugIntake {
@@ -55,11 +60,15 @@ export class BugIntake {
     return item ? { item, closed: true } : undefined;
   }
 
-  /** Why this event concerns me — assigned to me, or a comment naming me — else undefined. */
+  private isOpen = (b: Bug) => (this.o.isOpen ?? fallbackIsOpen)(b.type, b.state);
+
+  /**
+   * Why this event concerns me, else undefined. Only work items assigned to me
+   * are tracked; mentions alone don't create a task (later comments on a
+   * tracked item are still added to it).
+   */
   private reasonToTrack(e: BugEvent): string | undefined {
-    const { me } = this.o;
-    if (e.kind === 'assigned') return e.bug.assignedTo?.email === me.email ? 'assigned' : undefined;
-    if (e.kind === 'comment' && e.mentionIds.includes(me.identityId)) return 'mentioned';
+    if (e.bug.assignedTo?.email === this.o.me.email && (e.kind === 'assigned' || e.kind === 'comment' || e.kind === 'state' || e.kind === 'created')) return 'assigned';
     return undefined;
   }
 
@@ -72,7 +81,7 @@ export class BugIntake {
     if (!tracked) {
       const reason = this.reasonToTrack(e);
       if (!reason) return { bug: bug.id, action: 'ignored', reason: `${e.kind}: not for me` };
-      if (!isOpen(bug)) return { bug: bug.id, action: 'ignored', reason: `already ${bug.state}` };
+      if (!this.isOpen(bug)) return { bug: bug.id, action: 'ignored', reason: `already ${bug.state}` };
       const item = await this.create(bug, reason);
       if (e.kind === 'comment') await this.o.store.comment(item.id, this.note(e));
       return { bug: bug.id, action: 'created', reason, taskId: item.id };
@@ -83,7 +92,7 @@ export class BugIntake {
     const labels = new Set(item.labels);
     if (e.kind === 'comment') labels.add(NEW_COMMENT);
     if (labels.size !== item.labels.length) await this.o.store.update(item.id, { labels: [...labels] });
-    if (closed && isOpen(bug)) {
+    if (closed && this.isOpen(bug)) {
       await this.o.store.reopen(item.id);
       return { bug: bug.id, action: 'reopened', reason: `${e.kind}, bug is ${bug.state}`, taskId: item.id };
     }
@@ -107,11 +116,13 @@ export class BugIntake {
       bug.assignedTo && `Assigned to: ${bug.assignedTo.name}`,
       `Why: ${reason}`,
     ].filter(Boolean);
+    const isBug = bug.type === 'Bug';
     return this.o.store.create('work', {
-      title: `Bug ${bug.id}: ${bug.title}`,
+      title: `${bug.type} ${bug.id}: ${bug.title}`,
       notes: facts.join('\n'),
       priority: toPriority(bug.priority),
-      labels: [adoLabel(bug.id), 'bug', TO_INVESTIGATE, reason, ...(bug.application ? [toLabel(bug.application)] : [])],
+      // Only Bugs go to the Investigator.
+      labels: [adoLabel(bug.id), toLabel(bug.type), ...(isBug ? [TO_INVESTIGATE] : []), reason, ...(bug.application ? [toLabel(bug.application)] : [])],
       source: SOURCE,
       link: this.o.bugUrl(bug.id),
     });
@@ -127,7 +138,7 @@ export class BugIntake {
       case 'state':
         return `${who} moved it ${e.from ?? '?'} → ${e.bug.state}`;
       case 'created':
-        return 'Bug created';
+        return `${e.bug.type} created`;
     }
   }
 }

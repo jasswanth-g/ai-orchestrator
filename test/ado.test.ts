@@ -55,8 +55,9 @@ describe('parsePayload', () => {
     expect(parsePayload(historyOnly)).toEqual([]);
   });
 
-  test('ignores non-bug work items', () => {
-    expect(parsePayload(commented('hi', { 'System.WorkItemType': 'Story' }))).toEqual([]);
+  test('parses every work item type and keeps the type', () => {
+    const [e] = parsePayload(commented('hi', { 'System.WorkItemType': 'Story' }));
+    expect(e?.bug.type).toBe('Story');
   });
 
   test('helpers', () => {
@@ -82,36 +83,58 @@ describe('BugIntake', () => {
     intake = new BugIntake({ store, me: ME, isIgnored: (id) => ignored.has(id), bugUrl: (id) => `https://ado/${id}` });
   });
 
-  test('a direct mention creates one task carrying the comment', async () => {
-    const [out] = await handle(commented(`${mention(ME.identityId, 'Me')} can you look?`));
-    expect(out).toMatchObject({ action: 'created', reason: 'mentioned' });
+  const mine = { 'System.AssignedTo': 'Me <me@qwipo.com>' };
+
+  test('a comment on a bug assigned to me creates one task carrying the comment', async () => {
+    const [out] = await handle(commented('<div>can you look?</div>', mine));
+    expect(out).toMatchObject({ action: 'created', reason: 'assigned' });
     const [task] = await store.list('work');
     expect(task).toMatchObject({ title: 'Bug 21583: Order total differs from To pay', priority: 2, source: 'azure-devops', link: 'https://ado/21583' });
-    expect(task?.labels).toEqual(['ado-21583', 'bug', TO_INVESTIGATE, 'mentioned', 'eb2b-buyer-app']);
+    expect(task?.labels).toEqual(['ado-21583', 'bug', TO_INVESTIGATE, 'assigned', 'eb2b-buyer-app']);
   });
 
-  test('a group mention (@Dev) does not count — only my name does', async () => {
-    const [out] = await handle(commented(mention(MY_GROUP, 'Dev')));
-    expect(out?.action).toBe('ignored');
+  test('a mention alone — by name or group — no longer creates a task', async () => {
+    expect((await handle(commented(mention(ME.identityId, 'Me'))))[0]?.action).toBe('ignored');
+    expect((await handle(commented(mention(MY_GROUP, 'Dev'), {}, 'e2')))[0]?.action).toBe('ignored');
     expect(await store.list('work')).toEqual([]);
   });
 
-  test('an ignored bug gets no task and no notes', async () => {
+  test('a Task assigned to me is tracked without going to the Investigator', async () => {
+    const [out] = await handle(assigned('Me <me@qwipo.com>', 'evt-t'));
+    expect(out?.action).toBe('created');
+    store = new InMemoryStore();
+    intake = new BugIntake({ store, me: ME, bugUrl: (id) => `https://ado/${id}`, isOpen: (type, state) => type === 'Task' && state === 'Active' });
+    const task = { ...assigned('Me <me@qwipo.com>', 'evt-t2') } as any;
+    task.resource.revision.fields = { ...task.resource.revision.fields, 'System.WorkItemType': 'Task', 'System.State': 'Active' };
+    await handle(task);
+    const [t] = await store.list('work');
+    expect(t?.title).toBe('Task 21583: Order total differs from To pay');
+    expect(t?.labels).toContain('task');
+    expect(t?.labels).not.toContain(TO_INVESTIGATE);
+  });
+
+  test('open/closed follows the per-type states', async () => {
+    intake = new BugIntake({ store, me: ME, bugUrl: (id) => `https://ado/${id}`, isOpen: (type, state) => type === 'Feature' && state === 'Resolved' });
+    expect((await intake.track({ id: 1, type: 'Feature', title: 'f', state: 'Resolved' }, 'assigned')).action).toBe('created');
+    expect((await intake.track({ id: 2, type: 'Bug', title: 'b', state: 'Resolved' }, 'assigned')).action).toBe('created'); // track() trusts catch-up's filter
+  });
+
+  test('an ignored item gets no task and no notes', async () => {
     ignored.add(21583);
-    const [out] = await handle(commented(mention(ME.identityId, 'Me')));
+    const [out] = await handle(commented('<div>hi</div>', mine));
     expect(out).toMatchObject({ action: 'ignored', reason: 'you ignored this bug' });
-    expect((await intake.track({ id: 21583, title: 't', state: 'Active' }, 'assigned')).action).toBe('ignored');
+    expect((await intake.track({ id: 21583, type: 'Bug', title: 't', state: 'Active' }, 'assigned')).action).toBe('ignored');
     expect(await store.list('work')).toEqual([]);
   });
 
-  test('comments that do not mention me on untracked bugs are ignored', async () => {
+  test('comments on untracked items not assigned to me are ignored', async () => {
     const [out] = await handle(commented(mention(STRANGER, 'Akshith')));
     expect(out?.action).toBe('ignored');
     expect(await store.list('work')).toEqual([]);
   });
 
-  test('later comments on a tracked bug are added and flagged, without a second task', async () => {
-    await handle(commented(mention(ME.identityId, 'Me'), {}, 'e1'));
+  test('later comments on a tracked item are added and flagged, without a second task', async () => {
+    await handle(commented('<div>first</div>', mine, 'e1'));
     const [out] = await handle(commented('<div>Still failing on UAT</div>', { 'System.ChangedBy': 'PM <pm@qwipo.com>' }, 'e2'));
     expect(out?.action).toBe('annotated');
     const tasks = await store.list('work');
@@ -125,17 +148,17 @@ describe('BugIntake', () => {
   });
 
   test('my own changes are ignored', async () => {
-    const [out] = await handle(commented(mention(ME.identityId, 'Me'), { 'System.ChangedBy': 'Me <me@qwipo.com>' }));
+    const [out] = await handle(commented('<div>x</div>', { ...mine, 'System.ChangedBy': 'Me <me@qwipo.com>' }));
     expect(out?.reason).toBe('my own change');
   });
 
-  test('a newly created bug is not tracked unless it is assigned to me later', async () => {
+  test('a newly created bug is not tracked unless it is assigned to me', async () => {
     const created = { eventType: 'workitem.created', resource: { id: 1, fields: bugFields() } };
     expect((await handle(created))[0]?.action).toBe('ignored');
   });
 
   test('closed bugs are not turned into tasks', async () => {
-    const [out] = await handle(commented(mention(ME.identityId, 'Me'), { 'System.State': 'Closed' }));
+    const [out] = await handle(commented('<div>x</div>', { ...mine, 'System.State': 'Closed' }));
     expect(out).toMatchObject({ action: 'ignored', reason: 'already Closed' });
   });
 
@@ -148,7 +171,7 @@ describe('BugIntake', () => {
   });
 
   test('track() is idempotent for startup catch-up', async () => {
-    const bug = { id: 7, title: 't', state: 'Active' };
+    const bug = { id: 7, type: 'Bug', title: 't', state: 'Active' };
     expect((await intake.track(bug, 'assigned')).action).toBe('created');
     expect((await intake.track(bug, 'mentioned')).action).toBe('ignored');
   });

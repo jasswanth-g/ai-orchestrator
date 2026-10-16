@@ -184,7 +184,11 @@ export function agentsDashboard(o: {
       if (!o.investigator) throw new HttpError(409, 'Investigator is off — Azure DevOps is not connected');
       const bugId = Number(m[1]);
       try {
-        if (m[2] === 'investigate') return await o.investigator.start(bugId);
+        if (m[2] === 'investigate') {
+          const task = (await o.store.list('work')).find((t) => bugIdOf(t) === bugId);
+          if (task && !task.labels.includes('bug')) throw new HttpError(400, 'only Bugs can be investigated');
+          return await o.investigator.start(bugId);
+        }
         if (m[2] === 'terminal') return { result: await o.investigator.openTerminal(bugId) };
         const decision = body.decision;
         if (decision !== 'approve' && decision !== 'reject' && decision !== 'changes') throw new HttpError(400, 'decision: approve | reject | changes');

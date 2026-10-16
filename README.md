@@ -136,19 +136,22 @@ the activity feed (`agents-activity.jsonl`, last 500) and the WhatsApp messages
 the rules skipped (`whatsapp-skipped.jsonl`, last 100). State files live next to
 the todo-brain DB.
 
-### Azure DevOps bugs
+### Azure DevOps work items
+
+Only **open work items assigned to me**, of any type (Bug, Task, Story, …).
+"Open" is decided per type from ADO's own state categories (Proposed /
+InProgress), since the same state name can be open for one type and done for
+another. Mentions alone don't create tasks.
 
 | Event | Task |
 |---|---|
-| Bug assigned to me | created (`assigned`) |
-| Comment mentions **me by name** | created (`mentioned`), comment attached. Group mentions (`@Dev`, `@QA`) don't count |
-| A bug I ignored on the dashboard | nothing |
-| Any comment / state / assignment change on a tracked bug | comment attached; comments add `new-comment`; reopened bug reopens a done task |
-| My own changes, closed bugs, everything else | ignored |
+| An open item is (or gets) assigned to me | created (`<Type> <id>: <title>`, labels `ado-<id>`, the type, `assigned`) |
+| Comment / state / assignment change on a tracked item | comment attached; comments add `new-comment`; a reopened item reopens a done task |
+| An item I ignored on the dashboard, my own changes, closed items, everything else | ignored |
 
-Every task carries `ado-<id>`, `bug`, `to-investigate` and the app label — the
-Investigator agent's queue. Auth to ADO uses the `az login` session.
-`bun run ado-hooks list | create <url> | delete` manages the service hooks.
+Only **Bugs** get `to-investigate` and the Investigate button. Auth to ADO uses
+the `az login` session. `bun run ado-hooks list | create <url> | delete` manages
+the service hooks (updated + commented, all work item types).
 
 ### WhatsApp
 

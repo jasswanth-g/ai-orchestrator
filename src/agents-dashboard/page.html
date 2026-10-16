@@ -86,7 +86,7 @@
   </div>
 
   <div class="pipeline" data-views="overview">
-    <div class="stage link" data-go="/messenger"><div class="row"><b>Messenger</b><span id="messengerPill" class="pill dot idle">—</span></div><span class="muted">Turns bug events and WhatsApp messages into tasks (rules)</span></div>
+    <div class="stage link" data-go="/messenger"><div class="row"><b>Messenger</b><span id="messengerPill" class="pill dot idle">—</span></div><span class="muted">Turns your Azure DevOps work items and WhatsApp messages into tasks</span></div>
     <div class="stage link" data-go="/investigator"><div class="row"><b>Investigator</b><span id="invPill" class="pill dot idle">—</span></div><span class="muted">Root cause + fix report per bug, in its own iTerm window</span></div>
     <div class="stage"><div class="row"><b>Developer</b><span class="pill idle">Not built</span></div><span class="muted">Implements approved reports locally</span></div>
   </div>
@@ -191,7 +191,7 @@ document.querySelectorAll('[data-go]').forEach((n) => { n.onclick = () => (locat
 document.getElementById('pageTitle').textContent = TITLES[VIEW];
 document.getElementById('pageSub').textContent = {
   overview: 'Every agent at a glance: what came in, what needs you.',
-  messenger: 'Turns Azure DevOps bug events and WhatsApp messages into tasks.',
+  messenger: 'Turns your Azure DevOps work items and WhatsApp messages into tasks.',
   investigator: 'Root cause and fix reports per bug, each in its own iTerm session.',
 }[VIEW];
 document.title = `${TITLES[VIEW]} · Agents`;
@@ -239,7 +239,7 @@ function renderSources(s) {
   $('adoHint').textContent = adoNote ?? '';
   facts($('adoFacts'), ado.enabled ? [
     ['Account', ado.account],
-    ['Tracks', 'bugs assigned to you, or mentioning you by name'],
+    ['Tracks', 'open work items assigned to you (bugs, tasks, stories)'],
     ['Last event', ago(ado.lastEventAt)],
     ['Catch-up', ado.lastCatchUp ? `${ado.lastCatchUp.summary}, ${ago(ado.lastCatchUp.at)}` : 'running…'],
   ] : []);
@@ -277,11 +277,12 @@ function renderPipeline(s) {
 }
 
 const HOT = new Set(['to-investigate', 'needs-reply', 'new-comment']);
-const HIDE = (l) => l === 'bug' || l === 'whatsapp' || l.startsWith('wa-') || l.startsWith('ado-');
+// The title already says the work item type and chat.
+const HIDE = (l) => ['bug', 'task', 'story', 'feature', 'epic', 'whatsapp', 'assigned'].includes(l) || l.startsWith('wa-') || l.startsWith('ado-');
 
 function renderTasks(all) {
   // Investigator page: bugs not yet investigated; other pages: every agent task.
-  const tasks = VIEW === 'investigator' ? all.filter((t) => t.bugId && !t.investigation) : all;
+  const tasks = VIEW === 'investigator' ? all.filter((t) => t.bugId && t.labels.includes('bug') && !t.investigation) : all;
   if (VIEW === 'investigator') $('tasksTitle').firstChild.textContent = 'Bugs to investigate ';
   $('taskCount').textContent = tasks.length ? `(${tasks.length})` : '';
   $('tasksEmpty').hidden = tasks.length > 0;
@@ -321,7 +322,7 @@ function actionButton(label, run, needsConfirm = false) {
 function taskActions(t) {
   const inv = t.investigation;
   return el('div', { className: 'actions' },
-    t.bugId && last?.investigatorOn && !inv ? actionButton('Investigate', () => postJson(`/api/bugs/${t.bugId}/investigate`).then(refresh)) : null,
+    t.bugId && t.labels.includes('bug') && last?.investigatorOn && !inv ? actionButton('Investigate', () => postJson(`/api/bugs/${t.bugId}/investigate`).then(refresh)) : null,
     inv ? actionButton('Terminal', () => postJson(`/api/bugs/${t.bugId}/terminal`)) : null,
     inv?.reportVersion ? actionButton(reportOpen === t.bugId ? 'Hide report' : 'Report', () => toggleReport(t.bugId)) : null,
     t.bugId ? actionButton('Add note', () => openNoteForm(t)) : null,

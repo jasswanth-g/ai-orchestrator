@@ -18,8 +18,11 @@ export interface Person {
   email: string;
 }
 
+/** A work item (Bug, Task, Story, …). Named Bug for history; `type` says which. */
 export interface Bug {
   id: number;
+  /** System.WorkItemType, e.g. Bug, Task, Story. */
+  type: string;
   title: string;
   state: string;
   application?: string;
@@ -35,7 +38,10 @@ export type BugEvent =
   | { kind: 'state'; bug: Bug; from?: string; by?: Person }
   | { kind: 'comment'; bug: Bug; by?: Person; html: string; mentionIds: string[] };
 
-/** Bug states that still need work (category Proposed / InProgress). */
+/**
+ * Fallback for Bug states that still need work, used when the per-type state
+ * categories from ADO aren't available (tests, offline).
+ */
 export const OPEN_STATES = ['New', 'Active', 'Reopen'];
 
 /** "Name <email>" | { displayName, uniqueName } → Person. */
@@ -74,6 +80,7 @@ export function htmlToText(html: string): string {
 export function bugFrom(id: number, f: Record<string, any>): Bug {
   return {
     id,
+    type: f['System.WorkItemType'] ?? 'Bug',
     title: f['System.Title'] ?? '',
     state: f['System.State'] ?? '',
     application: f['Custom.Application'] || undefined,
@@ -90,14 +97,14 @@ const change = (fields: Record<string, any> | undefined, key: string) =>
     ? (fields[key] as { oldValue?: unknown; newValue?: unknown })
     : undefined;
 
-/** Payload → events for one Bug. Non-bug work items and irrelevant updates give []. */
+/** Payload → events for one work item (any type). Irrelevant updates give []. */
 export function parsePayload(p: AdoPayload): BugEvent[] {
   const r = p.resource;
   if (!r) return [];
 
   if (p.eventType === 'workitem.updated') {
     const fields = r.revision?.fields as Record<string, any> | undefined;
-    if (!fields || fields['System.WorkItemType'] !== 'Bug') return [];
+    if (!fields) return [];
     const bug = bugFrom(Number(r.workItemId ?? r.revision?.id), fields);
     const by = toPerson(fields['System.ChangedBy']);
     const events: BugEvent[] = [];
@@ -108,7 +115,7 @@ export function parsePayload(p: AdoPayload): BugEvent[] {
   }
 
   const fields = r.fields as Record<string, any> | undefined;
-  if (!fields || fields['System.WorkItemType'] !== 'Bug') return [];
+  if (!fields) return [];
   const bug = bugFrom(Number(r.id), fields);
 
   if (p.eventType === 'workitem.created') return [{ kind: 'created', bug }];

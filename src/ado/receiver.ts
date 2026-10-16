@@ -6,7 +6,7 @@ import { type ActivityLog, SourceStats } from '../events/activity.ts';
 import type { SeenIds } from '../events/seen.ts';
 import type { Store } from '../store/store.ts';
 import { AdoClient, adoConfig } from './client.ts';
-import { type AdoPayload, mentionIds, OPEN_STATES, parsePayload } from './events.ts';
+import { type AdoPayload, parsePayload } from './events.ts';
 import { BugIntake } from './intake.ts';
 
 /**
@@ -30,8 +30,9 @@ export async function adoReceiver(o: {
 }): Promise<Receiver> {
   const ado = new AdoClient(adoConfig());
   const me = await ado.me();
-  const intake = new BugIntake({ store: o.store, me, isIgnored: o.isIgnored, bugUrl: ado.bugUrl });
-  log(`ado: ${me.email} — bugs assigned to me or mentioning me by name`);
+  const isOpen = await ado.isOpenFn();
+  const intake = new BugIntake({ store: o.store, me, isIgnored: o.isIgnored, isOpen, bugUrl: ado.bugUrl });
+  log(`ado: ${me.email} — open work items assigned to me`);
   const stats = new SourceStats(o.statsFile);
 
   const authorised = (req: Request) => {
@@ -52,9 +53,9 @@ export async function adoReceiver(o: {
       try {
         for (const event of parsePayload(payload)) {
           const out = await intake.handle(event);
-          log(`ado ${payload.eventType} Bug ${out.bug}: ${out.action} (${out.reason})${out.taskId ? ` task ${out.taskId}` : ''}`);
+          log(`ado ${payload.eventType} ${event.bug.type} ${out.bug}: ${out.action} (${out.reason})${out.taskId ? ` task ${out.taskId}` : ''}`);
           stats.record(out.action);
-          o.activity.add({ source: 'ado', kind: payload.eventType ?? 'event', subject: `Bug ${out.bug}`, action: out.action, reason: out.reason, taskId: out.taskId, link: ado.bugUrl(out.bug) });
+          o.activity.add({ source: 'ado', kind: payload.eventType ?? 'event', subject: `${event.bug.type} ${out.bug}`, action: out.action, reason: out.reason, taskId: out.taskId, link: ado.bugUrl(out.bug) });
         }
         if (payload.id) o.seen.add(payload.id);
         return new Response('ok');
@@ -62,36 +63,24 @@ export async function adoReceiver(o: {
         // A 5xx makes ADO retry the delivery.
         log(`ado failed on ${payload.eventType} ${payload.id}: ${errText(err)}`);
         stats.record('error');
-        o.activity.add({ source: 'ado', kind: payload.eventType ?? 'event', subject: `Bug ${payload.resource?.workItemId ?? payload.resource?.id ?? '?'}`, action: 'error', reason: errText(err) });
+        o.activity.add({ source: 'ado', kind: payload.eventType ?? 'event', subject: `Work item ${payload.resource?.workItemId ?? payload.resource?.id ?? '?'}`, action: 'error', reason: errText(err) });
         return new Response('error', { status: 500 });
       }
     },
 
-    /**
-     * Open bugs assigned to me, plus bugs where a comment mentions me by name.
-     * @RecentMentions also returns group mentions, so each hit's comments are
-     * checked for my own identity.
-     */
+    /** Every open work item assigned to me (any type); open = ADO state category Proposed / InProgress. */
     async catchUp() {
-      const open = OPEN_STATES.map((s) => `'${s}'`).join(',');
-      const base = `SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Bug' AND [System.State] IN (${open})`;
-      const assigned = await ado.wiql(`${base} AND [System.AssignedTo] = @Me`);
-      const mentioned: number[] = [];
-      for (const id of await ado.wiql(`${base} AND [System.Id] IN (@RecentMentions)`)) {
-        if (assigned.includes(id)) continue;
-        const named = (await ado.comments(id)).some((html) => mentionIds(html).includes(me.identityId));
-        if (named) mentioned.push(id);
-      }
+      const ids = await ado.wiql(
+        "SELECT [System.Id] FROM WorkItems WHERE [System.AssignedTo] = @Me AND [System.State] NOT IN ('Closed', 'Removed', 'Cancelled') ORDER BY [System.ChangedDate] DESC",
+      );
       let created = 0;
-      for (const [reason, ids] of [['assigned', assigned], ['mentioned', mentioned]] as const) {
-        for (const bug of await ado.bugs([...ids])) {
-          const out = await intake.track(bug, reason);
-          if (out.action === 'created') {
-            created++;
-            stats.record('created', false);
-            log(`ado catch-up: Bug ${bug.id} → task ${out.taskId} (${reason})`);
-            o.activity.add({ source: 'ado', kind: 'catch-up', subject: `Bug ${bug.id}`, action: 'created', reason, taskId: out.taskId, link: ado.bugUrl(bug.id) });
-          }
+      for (const item of (await ado.bugs(ids)).filter((b) => isOpen(b.type, b.state))) {
+        const out = await intake.track(item, 'assigned');
+        if (out.action === 'created') {
+          created++;
+          stats.record('created', false);
+          log(`ado catch-up: ${item.type} ${item.id} → task ${out.taskId}`);
+          o.activity.add({ source: 'ado', kind: 'catch-up', subject: `${item.type} ${item.id}`, action: 'created', reason: 'assigned', taskId: out.taskId, link: ado.bugUrl(item.id) });
         }
       }
       log(`ado catch-up done: ${created} new task(s)`);

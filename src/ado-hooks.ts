@@ -33,7 +33,8 @@ if (cmd === 'list') {
       resourceVersion: '1.0',
       consumerId: 'webHooks',
       consumerActionId: 'httpRequest',
-      publisherInputs: { projectId, workItemType: 'Bug' },
+      // Every work item type: the intake keeps only items assigned to me.
+      publisherInputs: { projectId },
       consumerInputs: {
         url,
         basicAuthUsername: 'ado',

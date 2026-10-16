@@ -105,6 +105,28 @@ export class AdoClient {
     return out;
   }
 
+  private openStates?: Map<string, Set<string>>;
+
+  /**
+   * Is this state still open for this type? Uses ADO's state categories
+   * (Proposed / InProgress = open) per work item type — the same name can be
+   * open for one type and done for another ("Resolved" on Feature vs Bug).
+   */
+  async isOpenFn(): Promise<(type: string, state: string) => boolean> {
+    if (!this.openStates) {
+      const types = await this.call<{ value: Array<{ name: string; states?: Array<{ name: string; category: string }> }> }>(
+        `${this.projectUrl}/_apis/wit/workitemtypes?${API}`,
+      );
+      this.openStates = new Map();
+      for (const t of types.value) {
+        const states = t.states ?? (await this.call<{ value: Array<{ name: string; category: string }> }>(`${this.projectUrl}/_apis/wit/workitemtypes/${encodeURIComponent(t.name)}/states?${API}`)).value;
+        this.openStates.set(t.name, new Set(states.filter((s) => s.category === 'Proposed' || s.category === 'InProgress').map((s) => s.name)));
+      }
+    }
+    const map = this.openStates;
+    return (type, state) => map.get(type)?.has(state) ?? ['New', 'Active'].includes(state);
+  }
+
   async projectId(): Promise<string> {
     return (await this.call<{ id: string }>(`${this.cfg.org}/_apis/projects/${encodeURIComponent(this.cfg.project)}?${API}`)).id;
   }
