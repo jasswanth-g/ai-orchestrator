@@ -59,6 +59,8 @@ export function agentsDashboard(o: {
   investigator?: Investigator;
   /** Unset when ADO is off. */
   developer?: Developer;
+  /** Which commit the server runs vs. what's on disk (stale = restart needed). */
+  codeStatus?: () => { running: string; current: string; stale: boolean };
   /** For Done → Azure DevOps state changes; unset when ADO is off. */
   ado?: AdoClient;
   reports?: ReportsDb;
@@ -124,6 +126,7 @@ export function agentsDashboard(o: {
       tasks,
       investigatorOn: !!o.investigator,
       developerOn: !!o.developer,
+      code: o.codeStatus?.(),
       developments: [...devSessions.values()].map((d) => {
         const r = o.reports?.devResult(d.bugId);
         return {

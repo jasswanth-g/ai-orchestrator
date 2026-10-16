@@ -95,7 +95,7 @@
   </div>
 
   <!-- Shown only when something needs fixing. -->
-  <div id="alerts" data-views="overview messenger investigator"></div>
+  <div id="alerts" data-views="overview messenger investigator developer activity"></div>
 
   <section class="card section" data-views="messenger">
     <div class="row"><h2 style="margin:0">WhatsApp chats</h2><button type="button" class="btn" id="pickChats">Choose chats &amp; keywords</button></div>
@@ -262,6 +262,7 @@ function renderSources(s) {
   }
   if (has('alerts')) {
     const alerts = [];
+    if (last?.code?.stale) alerts.push(['warn', `The agents server is running older code (${last.code.running}; on disk: ${last.code.current}). Restart it to get the latest pages and fixes: Ctrl+C, then bun run agents.`]);
     if (s.ado?.error) alerts.push(['bad', `Azure DevOps could not start: ${s.ado.error}. Run az login, then restart the agents.`]);
     const st = wa.link?.state;
     if (wa.enabled && st && !['connected', 'starting', 'connecting'].includes(st)) alerts.push(['warn', `WhatsApp: ${(LINK[st] ?? [, st])[1]}.`, '/whatsapp']);

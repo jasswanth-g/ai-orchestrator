@@ -30,6 +30,19 @@ import { whatsappUi } from './whatsapp/ui.ts';
  */
 
 const port = Number(process.env.AGENTS_PORT ?? 4320);
+
+/**
+ * The code this process started with. Page files are read from disk on every
+ * request but routes load once, so after a pull/commit the two can disagree —
+ * the dashboard warns until the server is restarted.
+ */
+const repoRoot = new URL('..', import.meta.url).pathname;
+const headCommit = () => Bun.spawnSync(['git', '-C', repoRoot, 'rev-parse', '--short', 'HEAD']).stdout.toString().trim();
+const startedCommit = headCommit();
+const codeStatus = () => {
+  const current = headCommit();
+  return { running: startedCommit, current, stale: !!startedCommit && !!current && current !== startedCommit };
+};
 const list = (v?: string) => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const stateDir = dirname(dbPath);
 const store = pickStore();
@@ -147,6 +160,7 @@ const dashboard = agentsDashboard({
   bugNotes,
   investigator,
   developer,
+  codeStatus,
   ado: adoClient,
   reports: reportsDb,
   waStoreDir: bridgeOn ? waStoreDir : undefined,
