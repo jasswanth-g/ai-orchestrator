@@ -164,6 +164,13 @@ Empty required fields are filled with 1. Ignore never touches ADO.
 
 Generating or reviewing a report changes nothing in ADO.
 
+**Add work item** (next to the task list): type a work item ID to put it on the
+board. **Assign to me in Azure DevOps** (off by default) first makes you the
+assignee. Without it the assignee is left alone and the task is labelled `added`:
+Refresh keeps it while the item is open, even though it isn't assigned to you,
+and closes it once ADO closes it. Closed items, items on the ignore list and
+items already on the board are refused with the reason.
+
 **Refresh** (top bar, every page) runs the catch-up on demand: new open items
 assigned to me become tasks, and tasks whose item was closed or reassigned in
 ADO are closed with a note saying why. The same runs once on start. WhatsApp's

@@ -16,6 +16,8 @@ const fallbackIsOpen: IsOpen = (_type, state) => OPEN_STATES.includes(state);
 export const SOURCE = 'azure-devops';
 export const TO_INVESTIGATE = 'to-investigate';
 export const NEW_COMMENT = 'new-comment';
+/** Added by id from the dashboard without assigning it to me: kept while open, whoever owns it. */
+export const ADDED = 'added';
 /** How far back a closed task still counts as "already tracked". */
 const TRACKED_DAYS = 90;
 
@@ -102,7 +104,8 @@ export class BugIntake {
   /**
    * Closes board tasks whose work item left my plate: closed/resolved in ADO,
    * or assigned to someone else. `stillMine` = ids currently open and assigned
-   * to me; `fetch` reads the others to say why. Returns what was closed.
+   * to me; `fetch` reads the others to say why. Items I added by id without
+   * assigning them (`added`) stay while they are open. Returns what was closed.
    */
   async reconcile(stillMine: Set<number>, fetch: (ids: number[]) => Promise<Bug[]>): Promise<Outcome[]> {
     const open = (await this.o.store.list('work')).filter((t) => t.source === SOURCE);
@@ -113,6 +116,7 @@ export class BugIntake {
     const out: Outcome[] = [];
     for (const task of gone) {
       const bug = items.get(idOf(task));
+      if (bug && this.isOpen(bug) && task.labels.includes(ADDED)) continue;
       const reason = !bug
         ? 'no longer found in Azure DevOps'
         : !this.isOpen(bug)

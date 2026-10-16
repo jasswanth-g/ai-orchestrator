@@ -1,4 +1,5 @@
 import type { AdoClient } from '../ado/client.ts';
+import type { AdoReceiver } from '../ado/receiver.ts';
 import { doneLabel, planTransition } from '../ado/transitions.ts';
 import type { BugNotes, NoteType, Settings } from '../agents-settings.ts';
 import type { ActivityLog } from '../events/activity.ts';
@@ -197,6 +198,18 @@ export function agentsDashboard(o: {
     let m: RegExpExecArray | null;
 
     if (path === '/api/sync') return sync();
+
+    if (path === '/api/workitems') {
+      const ado = o.receivers.find((r) => r.name === 'ado') as AdoReceiver | undefined;
+      if (!ado?.addWorkItem) throw new HttpError(409, 'Azure DevOps is not connected');
+      const id = Number(String(body.id ?? '').replace(/^#/, '').trim());
+      if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'enter a work item number, e.g. 21582');
+      try {
+        return await ado.addWorkItem(id, body.assignToMe === true);
+      } catch (err) {
+        throw new HttpError(400, err instanceof Error ? err.message.replace(/^ADO \S+ \S+ → /, 'Azure DevOps: ') : String(err));
+      }
+    }
 
     if (path === '/api/settings/whatsapp') {
       const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);

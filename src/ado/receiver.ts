@@ -7,13 +7,26 @@ import type { SeenIds } from '../events/seen.ts';
 import type { Store } from '../store/store.ts';
 import { AdoClient, adoConfig } from './client.ts';
 import { type AdoPayload, parsePayload } from './events.ts';
-import { BugIntake } from './intake.ts';
+import { ADDED, BugIntake } from './intake.ts';
 
 /**
  * The service hooks' basic-auth password: ADO_HOOK_SECRET, else a secret kept
  * next to the todo-brain DB (created on first use). `ado-hooks create` uses it too.
  */
 export const adoHookSecret = () => process.env.ADO_HOOK_SECRET || loadOrCreateSecret(join(dirname(dbPath), 'ado-hook-secret'));
+
+export interface AddResult {
+  taskId: string;
+  title: string;
+  assigned: boolean;
+  reopened?: boolean;
+}
+
+/** The ADO receiver also lets the dashboard add a work item by id. */
+export interface AdoReceiver extends Receiver {
+  /** Puts work item `id` on the board; with assignToMe, first assigns it to me in ADO. */
+  addWorkItem(id: number, assignToMe: boolean): Promise<AddResult>;
+}
 
 /**
  * Azure DevOps service-hook events for Bugs → todo-brain tasks (intake.ts).
@@ -27,7 +40,7 @@ export async function adoReceiver(o: {
   activity: ActivityLog;
   statsFile: string;
   isIgnored: (bugId: number) => boolean;
-}): Promise<Receiver> {
+}): Promise<AdoReceiver> {
   const ado = new AdoClient(adoConfig());
   const me = await ado.me();
   const isOpen = await ado.isOpenFn();
@@ -97,6 +110,41 @@ export async function adoReceiver(o: {
       log(`ado catch-up done: ${summary}`);
       stats.caughtUp(summary);
       return summary;
+    },
+
+    async addWorkItem(id, assignToMe) {
+      let [item] = await ado.bugs([id]).catch(() => []);
+      if (!item) throw new Error(`work item ${id} was not found in Azure DevOps`);
+      if (!isOpen(item.type, item.state)) throw new Error(`${item.type} ${id} is ${item.state} in Azure DevOps — only open items go on the board`);
+      if (o.isIgnored(id)) throw new Error(`${item.type} ${id} is on your ignore list — restore it from Ignored items first`);
+      const existing = await intake.find(id);
+      if (existing && !existing.closed) throw new Error(`${item.type} ${id} is already on the board (task #${existing.item.id})`);
+
+      const alreadyMine = item.assignedTo?.email === me.email;
+      if (assignToMe && !alreadyMine) {
+        await ado.updateWorkItem(id, [{ op: 'add', path: '/fields/System.AssignedTo', value: me.email }]);
+        item = { ...item, assignedTo: { name: me.email, email: me.email } };
+      }
+      const mine = assignToMe || alreadyMine;
+      let taskId: string;
+      let reopened = false;
+      if (existing) {
+        // Done or synced away earlier: bring the same task back.
+        await o.store.reopen(existing.item.id);
+        const labels = existing.item.labels.filter((l) => l !== ADDED);
+        await o.store.update(existing.item.id, { labels: mine ? labels : [...labels, ADDED] });
+        await o.store.comment(existing.item.id, `Added back from the dashboard${assignToMe && !alreadyMine ? ', and assigned to you in Azure DevOps' : ''}.`);
+        taskId = existing.item.id;
+        reopened = true;
+      } else {
+        const out = await intake.track(item, mine ? 'assigned' : ADDED);
+        if (!out.taskId) throw new Error(`${item.type} ${id}: ${out.reason}`);
+        taskId = out.taskId;
+      }
+      const how = assignToMe && !alreadyMine ? 'added and assigned to you in Azure DevOps' : mine ? 'added (already yours)' : 'added without changing the assignee';
+      log(`ado: ${item.type} ${id} ${how} → task ${taskId}`);
+      o.activity.add({ source: 'dashboard', kind: 'add', subject: `${item.type} ${id}`, action: reopened ? 'reopened' : 'created', reason: how, taskId, link: ado.bugUrl(id) });
+      return { taskId, title: `${item.type} ${id}: ${item.title}`, assigned: mine, reopened };
     },
 
     async status() {

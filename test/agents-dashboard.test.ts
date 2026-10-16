@@ -221,3 +221,28 @@ test('Refresh runs every source once, even when clicked twice, and logs the resu
   expect(activity.recent(1)[0]).toMatchObject({ kind: 'refresh', action: 'error', reason: 'ado: 1 new, 2 closed · whatsapp: bridge store missing' });
   expect((await handle(new Request('http://127.0.0.1:4320/api/sync', { method: 'POST', headers: { host: '127.0.0.1:4320', 'content-type': 'text/plain' }, body: 'x' })))?.status).toBe(415);
 });
+
+test('Add work item: validates the id, passes assignToMe (default false), returns ADO errors', async () => {
+  const { agentsDashboard } = await import('../src/agents-dashboard/routes.ts');
+  const { Settings, BugNotes } = await import('../src/agents-settings.ts');
+  const t = (n: string) => `${process.env.TMPDIR ?? '/tmp'}/${n}-${Date.now()}-${Math.random()}`;
+  const calls: any[] = [];
+  const ado: any = {
+    name: 'ado', path: '/hooks/ado', handle: async () => new Response(), status: async () => ({}), catchUp: async () => '',
+    async addWorkItem(id: number, assignToMe: boolean) {
+      calls.push([id, assignToMe]);
+      if (id === 404) throw new Error('work item 404 was not found in Azure DevOps');
+      return { taskId: '9', title: `Bug ${id}: x`, assigned: assignToMe };
+    },
+  };
+  const handle = agentsDashboard({ port: 4320, store: new InMemoryStore(), receivers: [ado], activity: new ActivityLog(t('a')), adoOn: true, settings: new Settings(t('s'), { watch: [], keywords: [] }), bugNotes: new BugNotes(t('n')), todoDashboardUrl: '' });
+  const post = (body: unknown) => handle(new Request('http://127.0.0.1:4320/api/workitems', { method: 'POST', headers: { host: '127.0.0.1:4320', 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+  expect(await (await post({ id: '#21582' }))!.json()).toEqual({ taskId: '9', title: 'Bug 21582: x', assigned: false });
+  await post({ id: 7, assignToMe: true });
+  await post({ id: 8, assignToMe: 'yes' });
+  expect(calls).toEqual([[21582, false], [7, true], [8, false]]);
+  expect((await post({ id: 'abc' }))?.status).toBe(400);
+  const nf = await post({ id: 404 });
+  expect(nf?.status).toBe(400);
+  expect(await nf!.text()).toContain('not found');
+});

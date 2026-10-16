@@ -192,4 +192,14 @@ describe('BugIntake', () => {
     expect((await store.list('work')).map((t) => t.title)).toEqual(['Task 1: t1']);
     expect(await intake.reconcile(new Set([1]), fetch)).toEqual([]);
   });
+
+  test('reconcile keeps an item added without assigning it while it is open', async () => {
+    intake = new BugIntake({ store, me: ME, bugUrl: (id) => `https://ado/${id}`, isOpen: (_t, state) => state === 'Active' });
+    await intake.track({ id: 5, type: 'Bug', title: 'theirs', state: 'Active', assignedTo: { name: 'Akshith', email: 'a@q.com' } }, 'added');
+    let state = 'Active';
+    const fetch = async () => [{ id: 5, type: 'Bug', title: 'theirs', state, assignedTo: { name: 'Akshith', email: 'a@q.com' } }];
+    expect(await intake.reconcile(new Set(), fetch)).toEqual([]);
+    state = 'Closed';
+    expect((await intake.reconcile(new Set(), fetch)).map((c) => c.reason)).toEqual(['Closed in Azure DevOps']);
+  });
 });

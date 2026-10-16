@@ -63,6 +63,9 @@
   .review textarea { min-height: 72px; }
   pre.md { white-space: pre-wrap; font-size: 13px; margin: 0; }
   .lead { font-size: 15px; line-height: 1.6; margin: 10px 0 0; }
+  .add-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 14px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
+  .add-form input[type=text] { width: 220px; }
+  .add-form .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
   .alert { display: flex; gap: 8px; align-items: baseline; padding: 10px 14px; border-radius: 9px; margin-bottom: 12px; font-size: 13px; font-weight: 500; }
 </style>
 </head>
@@ -120,7 +123,14 @@
   </section>
 
   <section class="card section" data-views="overview messenger investigator">
-    <div class="row"><h2 id="tasksTitle">Agent tasks <span id="taskCount" class="muted"></span></h2></div>
+    <div class="row"><h2 id="tasksTitle">Agent tasks <span id="taskCount" class="muted"></span></h2><button type="button" class="btn" id="addItem" hidden>Add work item</button></div>
+    <form class="add-form" id="addForm" hidden>
+      <input type="text" id="addId" inputmode="numeric" autocomplete="off" placeholder="Work item ID, e.g. 21582" aria-label="Work item ID">
+      <label class="check"><input type="checkbox" id="addAssign"> Assign to me in Azure DevOps</label>
+      <button type="submit" class="btn primary" id="addSubmit">Add</button>
+      <button type="button" class="btn" id="addCancel">Cancel</button>
+      <span class="muted" id="addMsg"></span>
+    </form>
     <div class="scroll"><table>
       <thead><tr><th>Task</th><th>Source</th><th>Flags</th><th>Created</th><th></th></tr></thead>
       <tbody id="tasks"></tbody>
@@ -130,7 +140,7 @@
 
   <section class="card section" id="ignoredCard" data-views="messenger" hidden>
     <details>
-      <summary>Ignored bugs <span id="ignoredCount" class="muted"></span></summary>
+      <summary>Ignored items <span id="ignoredCount" class="muted"></span></summary>
       <p class="muted" style="margin:0 0 8px">No task and no updates for these. Restore brings the bug back.</p>
       <div class="scroll"><table>
         <thead><tr><th>Bug</th><th>Ignored</th><th></th></tr></thead>
@@ -217,6 +227,8 @@ const LINK = {
 
 function renderSources(s) {
   renderPipeline(s);
+  // Adding by id needs a working Azure DevOps connection.
+  if (has('addItem') && $('addForm').hidden) $('addItem').hidden = !(s.ado?.enabled && !s.ado?.error);
   renderSkipped(s.whatsapp?.skipped ?? []);
   const wa = s.whatsapp ?? {};
   if (has('waSummary')) {
@@ -248,7 +260,7 @@ function renderPipeline(s) {
 
 const HOT = new Set(['to-investigate', 'needs-reply', 'new-comment']);
 // The title already says the work item type and chat.
-const HIDE = (l) => ['bug', 'task', 'story', 'feature', 'epic', 'whatsapp', 'assigned'].includes(l) || l.startsWith('wa-') || l.startsWith('ado-');
+const HIDE = (l) => ['bug', 'task', 'story', 'issue', 'feature', 'epic', 'whatsapp', 'assigned'].includes(l) || l.startsWith('wa-') || l.startsWith('ado-');
 
 function renderTasks(all) {
   if (!has('tasks')) return;
@@ -478,6 +490,29 @@ function renderInvestigations(items) {
         i.reportVersion ? actionButton(reportOpen === i.bugId ? 'Hide report' : 'Report', () => toggleReport(i.bugId)) : null)));
     return [row, reportOpen === i.bugId ? reportRow(t) : null].filter(Boolean);
   }));
+}
+
+// ── Add a work item by id ───────────────────────────────────────────────
+if (has('addItem')) {
+  const form = $('addForm');
+  const reset = () => { $('addId').value = ''; $('addAssign').checked = false; $('addMsg').textContent = ''; };
+  $('addItem').onclick = () => { form.hidden = false; $('addItem').hidden = true; reset(); $('addId').focus(); };
+  $('addCancel').onclick = () => { form.hidden = true; $('addItem').hidden = false; };
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    $('addSubmit').disabled = true;
+    $('addMsg').textContent = $('addAssign').checked ? 'Assigning to you and adding…' : 'Adding…';
+    try {
+      const r = await postJson('/api/workitems', { id: $('addId').value, assignToMe: $('addAssign').checked });
+      reset();
+      $('addMsg').textContent = `${r.reopened ? 'Back on the board' : 'Added'}: ${r.title}${r.assigned ? '' : ' (not assigned to you)'}`;
+      await refresh(true);
+    } catch (err) {
+      $('addMsg').textContent = err.message;
+    } finally {
+      $('addSubmit').disabled = false;
+    }
+  };
 }
 
 // ── WhatsApp chat picker ────────────────────────────────────────────────
