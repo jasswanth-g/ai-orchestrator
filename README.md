@@ -164,6 +164,11 @@ Empty required fields are filled with 1. Ignore never touches ADO.
 
 Generating or reviewing a report changes nothing in ADO.
 
+**Refresh** (top bar, every page) runs the catch-up on demand: new open items
+assigned to me become tasks, and tasks whose item was closed or reassigned in
+ADO are closed with a note saying why. The same runs once on start. WhatsApp's
+catch-up runs too. The result shows in the top bar and in Activity.
+
 Only **Bugs** get `to-investigate` and the Investigate button. Auth to ADO uses
 the `az login` session. `bun run ado-hooks list | create <url> | delete` manages
 the service hooks (updated + commented, all work item types).

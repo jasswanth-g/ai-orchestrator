@@ -153,6 +153,7 @@ export function whatsappReceiver(o: {
       }
       log(`whatsapp catch-up done: ${rows.length} message(s) since ${since.toISOString()}`);
       stats.caughtUp(`${rows.length} message(s) replayed`);
+      return `${rows.length} new message(s) checked`;
     },
 
     async status() {

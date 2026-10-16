@@ -175,4 +175,21 @@ describe('BugIntake', () => {
     expect((await intake.track(bug, 'assigned')).action).toBe('created');
     expect((await intake.track(bug, 'mentioned')).action).toBe('ignored');
   });
+
+  test('reconcile closes tasks whose item was closed or reassigned, and keeps the rest', async () => {
+    intake = new BugIntake({ store, me: ME, bugUrl: (id) => `https://ado/${id}`, isOpen: (_t, state) => state === 'Active' });
+    for (const id of [1, 2, 3, 4]) await intake.track({ id, type: 'Task', title: `t${id}`, state: 'Active' }, 'assigned');
+    const fetch = async (ids: number[]) =>
+      ids.flatMap((id) =>
+        id === 2 ? [{ id, type: 'Task', title: 't2', state: 'Closed' }] : id === 3 ? [{ id, type: 'Task', title: 't3', state: 'Active', assignedTo: { name: 'Akshith', email: 'a@q.com' } }] : [],
+      );
+    const closed = await intake.reconcile(new Set([1]), fetch);
+    expect(closed.map((c) => [c.bug, c.reason])).toEqual([
+      [2, 'Closed in Azure DevOps'],
+      [3, 'now assigned to Akshith'],
+      [4, 'no longer found in Azure DevOps'],
+    ]);
+    expect((await store.list('work')).map((t) => t.title)).toEqual(['Task 1: t1']);
+    expect(await intake.reconcile(new Set([1]), fetch)).toEqual([]);
+  });
 });

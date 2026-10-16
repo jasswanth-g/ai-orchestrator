@@ -26,7 +26,7 @@ const ASSETS: Record<string, { file: ReturnType<typeof Bun.file>; type: string }
 };
 const AGENT_SOURCES = ['azure-devops', 'whatsapp'];
 /** One page, three views: the client shows the sections for its path. */
-const PAGES = new Set(['/', '/messenger', '/investigator']);
+const PAGES = new Set(['/', '/messenger', '/investigator', '/activity']);
 const TRACKED_DAYS = 90;
 /** Work item type labels the intake adds (toLabel of System.WorkItemType). */
 const TYPE_LABELS = ['bug', 'task', 'story', 'issue', 'feature', 'epic'];
@@ -123,7 +123,6 @@ export function agentsDashboard(o: {
         return { ...i, link: o.investigator!.bugUrl(i.bugId), report: r ? { version: r.version, verdict: r.verdict, confidence: r.confidence } : undefined };
       }),
       ignoredBugs: [...o.settings.ignoredBugs].reverse(),
-      activity: o.activity.recent(150),
     };
   }
 
@@ -161,9 +160,43 @@ export function agentsDashboard(o: {
     return `${type} ${bugId} → ${plan.label}${plan.comment ? ' + comment' : ''}`;
   }
 
+  /** Activity search: every word must appear in the event (subject, reason, kind, source, task); newest first. */
+  function searchActivity(params: URLSearchParams) {
+    const words = (params.get('q') ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+    const source = params.get('source');
+    const items = o.activity
+      .recent(500)
+      .filter((a) => !source || source === 'all' || a.source === source)
+      .filter((a) => {
+        const text = [a.subject, a.reason, a.kind, a.source, a.action, a.detail, a.taskId && `#${a.taskId}`].join(' ').toLowerCase();
+        return words.every((w) => text.includes(w));
+      });
+    return { total: items.length, items: items.slice(0, 200) };
+  }
+
+  /** Refresh: run every source's catch-up now. One at a time — a second click waits for the first. */
+  let syncing: Promise<unknown> | undefined;
+  async function sync() {
+    syncing ??= (async () => {
+      const results: Array<{ source: string; summary?: string; error?: string }> = [];
+      for (const r of o.receivers) {
+        try {
+          results.push({ source: r.name, summary: (await r.catchUp()) || 'done' });
+        } catch (err) {
+          results.push({ source: r.name, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      o.activity.add({ source: 'dashboard', kind: 'refresh', subject: 'Refresh', action: results.some((x) => x.error) ? 'error' : 'annotated', reason: results.map((x) => `${x.source}: ${x.error ?? x.summary}`).join(' · ') });
+      return { results };
+    })().finally(() => (syncing = undefined));
+    return syncing;
+  }
+
   /** Writes, by path. Each returns the JSON body to send. */
   async function write(path: string, body: Record<string, unknown>): Promise<unknown> {
     let m: RegExpExecArray | null;
+
+    if (path === '/api/sync') return sync();
 
     if (path === '/api/settings/whatsapp') {
       const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -258,6 +291,7 @@ export function agentsDashboard(o: {
         if (PAGES.has(url.pathname)) return new Response(page, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
         if (url.pathname === '/api/overview') return Response.json(await overview(), { headers: { 'Cache-Control': 'no-store' } });
         if (url.pathname === '/api/whatsapp/chats') return Response.json(chats(), { headers: { 'Cache-Control': 'no-store' } });
+        if (url.pathname === '/api/activity') return Response.json(searchActivity(url.searchParams), { headers: { 'Cache-Control': 'no-store' } });
         const rep = /^\/api\/bugs\/(\d+)\/report$/.exec(url.pathname);
         if (rep && o.investigator) return Response.json(o.investigator.report(Number(rep[1])), { headers: { 'Cache-Control': 'no-store' } });
         throw new HttpError(404, 'not found');

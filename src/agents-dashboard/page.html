@@ -8,7 +8,6 @@
 <style>
   /* Page-specific; tokens and base components come from shell.css. */
   .page-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 16px; }
   .pipeline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
   .stage { padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
   .stage b { display: block; font-weight: 600; }
@@ -19,10 +18,6 @@
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 14px 0 0; font-size: 13px; }
   dt { color: var(--muted); }
   dd { margin: 0; overflow-wrap: anywhere; }
-  .counts { display: flex; gap: 22px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
-  .counts div { display: flex; flex-direction: column; }
-  .counts b { font-size: 20px; font-weight: 550; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-  .counts span { color: var(--muted); font-size: 11px; }
   .section { margin-bottom: 16px; }
   .tags { display: flex; gap: 4px; flex-wrap: wrap; }
   .tag { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: var(--soft); color: var(--muted); white-space: nowrap; }
@@ -37,7 +32,6 @@
   .actions button.confirm { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
   details[open] > summary { margin-bottom: 8px; }
   .card > details > summary { font-size: 15px; }
-  .since { color: var(--muted); font-size: 11px; margin-top: 8px; }
   .panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
   .chatlist { max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 9px; margin: 8px 0; }
   .chatlist label { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
@@ -69,6 +63,7 @@
   .review textarea { min-height: 72px; }
   pre.md { white-space: pre-wrap; font-size: 13px; margin: 0; }
   .lead { font-size: 15px; line-height: 1.6; margin: 10px 0 0; }
+  .alert { display: flex; gap: 8px; align-items: baseline; padding: 10px 14px; border-radius: 9px; margin-bottom: 12px; font-size: 13px; font-weight: 500; }
 </style>
 </head>
 <body>
@@ -91,19 +86,13 @@
     <div class="stage"><div class="row"><b>Developer</b><span class="pill idle">Not built</span></div><span class="muted">Implements approved reports locally</span></div>
   </div>
 
-  <div class="grid" data-views="overview messenger">
-    <section class="card" id="adoCard">
-      <div class="row"><h2>Azure DevOps</h2><span id="adoPill" class="pill dot idle">—</span></div>
-      <p id="adoHint" class="muted" hidden></p>
-      <dl id="adoFacts"></dl>
-      <div class="counts" id="adoCounts"></div>
-      <div class="since" id="adoSince"></div>
-    </section>
-    <section class="card" id="waCard">
-      <div class="row"><h2>WhatsApp</h2><span id="waPill" class="pill dot idle">—</span></div>
-      <dl id="waFacts"></dl>
-      <div class="toolbar" style="margin-top:10px" data-views="messenger"><button type="button" class="btn" id="pickChats">Choose chats &amp; keywords</button></div>
-      <div class="panel" id="picker" hidden>
+  <!-- Shown only when something needs fixing. -->
+  <div id="alerts" data-views="overview messenger investigator"></div>
+
+  <section class="card section" data-views="messenger">
+    <div class="row"><h2 style="margin:0">WhatsApp chats</h2><button type="button" class="btn" id="pickChats">Choose chats &amp; keywords</button></div>
+    <p class="muted" id="waSummary" style="margin:8px 0 0"></p>
+    <div class="panel" id="picker" hidden>
         <input type="search" id="chatSearch" placeholder="Search chats">
         <div class="toolbar" style="margin-top:8px">
           <label><input type="checkbox" id="showDirect"> Show 1:1 chats</label>
@@ -119,10 +108,7 @@
           <span class="muted" id="pickerMsg"></span>
         </div>
       </div>
-      <div class="counts" id="waCounts"></div>
-      <div class="since" id="waSince"></div>
-    </section>
-  </div>
+  </section>
 
   <section class="card section" data-views="investigator">
     <div class="row"><h2>Investigations <span id="invCount" class="muted"></span></h2><span class="muted" id="knowledgePath"></span></div>
@@ -164,17 +150,16 @@
     </details>
   </section>
 
-  <section class="card section" data-views="overview messenger investigator">
-    <div class="row" style="flex-wrap: wrap; margin-bottom: 8px;">
-      <h2 style="margin:0">Activity</h2>
-      <div class="filters" id="actionFilters"></div>
+  <section class="card section" data-views="activity">
+    <div class="toolbar" style="margin-bottom: 10px;">
+      <input type="search" id="activitySearch" placeholder="Search — a bug or task number, a chat, a person, “error”…" style="max-width: 460px">
+      <div class="filters" id="sourceFilters"></div>
     </div>
-    <div class="filters" id="sourceFilters" style="margin-bottom: 8px;"></div>
     <div class="scroll"><table>
       <thead><tr><th>When</th><th>Source</th><th>About</th><th>Result</th><th>Why</th></tr></thead>
       <tbody id="activity"></tbody>
     </table></div>
-    <div id="activityEmpty" class="empty" hidden>Nothing yet.</div>
+    <div id="activityEmpty" class="empty">Search the last 500 events — nothing is listed until you do.</div>
   </section>
 </main>
 </div>
@@ -184,8 +169,8 @@
 const $ = (id) => document.getElementById(id);
 
 // ── Pages: one HTML, sections tagged with data-views ────────────────────
-const VIEW = { '/messenger': 'messenger', '/investigator': 'investigator' }[location.pathname] ?? 'overview';
-const TITLES = { overview: 'Agents', messenger: 'Messenger agent', investigator: 'Investigator agent' };
+const VIEW = { '/messenger': 'messenger', '/investigator': 'investigator', '/activity': 'activity' }[location.pathname] ?? 'overview';
+const TITLES = { overview: 'Agents', messenger: 'Messenger agent', investigator: 'Investigator agent', activity: 'Activity' };
 document.querySelectorAll('[data-views]').forEach((n) => { if (!n.dataset.views.split(' ').includes(VIEW)) n.remove(); });
 document.querySelectorAll('[data-go]').forEach((n) => { n.onclick = () => (location.href = n.dataset.go); });
 document.getElementById('pageTitle').textContent = TITLES[VIEW];
@@ -193,6 +178,7 @@ document.getElementById('pageSub').textContent = {
   overview: 'Every agent at a glance: what came in, what needs you.',
   messenger: 'Turns your Azure DevOps work items and WhatsApp messages into tasks.',
   investigator: 'Root cause and fix reports per bug, each in its own iTerm session.',
+  activity: 'Everything the agents and you did — search when you need it.',
 }[VIEW];
 document.title = `${TITLES[VIEW]} · Agents`;
 const has = (id) => !!document.getElementById(id);
@@ -230,37 +216,21 @@ const LINK = {
 };
 
 function renderSources(s) {
-  if (!has('adoPill')) return renderPipeline(s);
-  const ado = s.ado;
-  if (ado.error) pill($('adoPill'), 'bad', 'Error');
-  else pill($('adoPill'), ado.enabled ? 'ok' : 'idle', ado.enabled ? 'Listening' : 'Off');
-  const adoNote = ado.error ? `Could not start: ${ado.error}. Run \`az login\` and restart the agents.` : ado.hint;
-  $('adoHint').hidden = !adoNote;
-  $('adoHint').textContent = adoNote ?? '';
-  facts($('adoFacts'), ado.enabled ? [
-    ['Account', ado.account],
-    ['Tracks', 'open work items assigned to you (bugs, tasks, stories)'],
-    ['Last event', ago(ado.lastEventAt)],
-    ['Catch-up', ado.lastCatchUp ? `${ado.lastCatchUp.summary}, ${ago(ado.lastCatchUp.at)}` : 'running…'],
-  ] : []);
-  counts($('adoCounts'), ado.enabled ? ado.counts : null);
-  $('adoSince').textContent = ado.enabled && ado.since ? `Counting since ${new Date(ado.since).toLocaleString()}` : '';
-
-  const wa = s.whatsapp;
-  const [tone, label] = LINK[wa.link?.state] ?? ['warn', wa.link?.state ?? '—'];
-  pill($('waPill'), tone, label);
-  facts($('waFacts'), wa.enabled ? [
-    ['Account', wa.link?.pushName ? `${wa.link.pushName}${wa.link.account ? ` (+${wa.link.account})` : ''}` : null],
-    ['Watching', wa.watch?.length ? wa.watch.join(', ') : 'nothing yet — choose chats below'],
-    ['Keywords', wa.keywords?.length ? wa.keywords.join(', ') : 'none'],
-    ['Last message', ago(wa.lastEventAt)],
-    ['Catch-up', wa.lastCatchUp ? `${wa.lastCatchUp.summary}, ${ago(wa.lastCatchUp.at)}` : 'running…'],
-  ] : [['Status', 'Started with WHATSAPP_BRIDGE=off']]);
-  counts($('waCounts'), wa.enabled ? wa.counts : null);
-  $('waSince').textContent = wa.enabled && wa.since ? `Counting since ${new Date(wa.since).toLocaleString()}` : '';
-  renderSkipped(wa.skipped ?? []);
-
   renderPipeline(s);
+  renderSkipped(s.whatsapp?.skipped ?? []);
+  const wa = s.whatsapp ?? {};
+  if (has('waSummary')) {
+    $('waSummary').textContent = !wa.enabled
+      ? 'The WhatsApp bridge is off (WHATSAPP_BRIDGE=off).'
+      : `${wa.watch?.length ? `Watching ${wa.watch.join(', ')}` : 'Not watching any chats yet.'}${wa.keywords?.length ? ` · Keywords: ${wa.keywords.join(', ')}` : ''}`;
+  }
+  if (has('alerts')) {
+    const alerts = [];
+    if (s.ado?.error) alerts.push(['bad', `Azure DevOps could not start: ${s.ado.error}. Run az login, then restart the agents.`]);
+    const st = wa.link?.state;
+    if (wa.enabled && st && !['connected', 'starting', 'connecting'].includes(st)) alerts.push(['warn', `WhatsApp: ${(LINK[st] ?? [, st])[1]}.`, '/whatsapp']);
+    $('alerts').replaceChildren(...alerts.map(([tone, text, href]) => el('div', { className: `alert ${tone}` }, text, href ? el('a', { href, textContent: 'Fix →' }) : null)));
+  }
 }
 
 function renderPipeline(s) {
@@ -281,6 +251,7 @@ const HOT = new Set(['to-investigate', 'needs-reply', 'new-comment']);
 const HIDE = (l) => ['bug', 'task', 'story', 'feature', 'epic', 'whatsapp', 'assigned'].includes(l) || l.startsWith('wa-') || l.startsWith('ado-');
 
 function renderTasks(all) {
+  if (!has('tasks')) return;
   // Investigator page: bugs not yet investigated; other pages: every agent task.
   const tasks = VIEW === 'investigator' ? all.filter((t) => t.bugId && t.labels.includes('bug') && !t.investigation) : all;
   if (VIEW === 'investigator') $('tasksTitle').firstChild.textContent = 'Bugs to investigate ';
@@ -580,30 +551,48 @@ function renderSkipped(items) {
 const ACTIONS = { all: 'All', created: 'Created', annotated: 'Notes', reopened: 'Reopened', done: 'Done', ignored: 'Ignored', error: 'Errors' };
 const SOURCES = { all: 'All sources', ado: 'Azure DevOps', whatsapp: 'WhatsApp', investigator: 'Investigator', dashboard: 'You' };
 const TONE = { created: 'ok', annotated: 'info', reopened: 'warn', done: 'ok', ignored: 'idle', error: 'bad' };
-let filter = { action: 'all', source: VIEW === 'investigator' ? 'investigator' : 'all' };
+let filter = { source: 'all' };
 let last;
 
-function filterButtons(node, options, key) {
+function filterButtons(node, options, key, onChange) {
   node.replaceChildren(...Object.entries(options).map(([value, label]) => {
     const b = el('button', { type: 'button', textContent: label });
     b.setAttribute('aria-pressed', String(filter[key] === value));
-    b.onclick = () => { filter[key] = value; render(last); };
+    b.onclick = () => { filter[key] = value; onChange(); };
     return b;
   }));
 }
 
 function renderActivity(items) {
-  filterButtons($('actionFilters'), ACTIONS, 'action');
-  filterButtons($('sourceFilters'), SOURCES, 'source');
-  const shown = items.filter((a) => (filter.action === 'all' || a.action === filter.action) && (filter.source === 'all' || a.source === filter.source));
-  $('activityEmpty').hidden = shown.length > 0;
-  $('activity').replaceChildren(...shown.map((a) => el('tr', {},
+  $('activityEmpty').hidden = items.length > 0;
+  $('activityEmpty').textContent = 'No matching events.';
+  $('activity').replaceChildren(...items.map((a) => el('tr', {},
     el('td', { className: 'when', textContent: ago(a.at), title: new Date(a.at).toLocaleString() }),
     el('td', { textContent: SOURCES[a.source] ?? a.source }),
     el('td', {}, a.link ? el('a', { href: a.link, target: '_blank', rel: 'noopener', textContent: a.subject }) : a.subject, el('div', { className: 'muted', textContent: a.kind })),
     el('td', {}, el('span', { className: `pill ${TONE[a.action] ?? 'idle'}`, textContent: ACTIONS[a.action] ?? a.action }), a.taskId ? el('div', { className: 'muted', textContent: `task #${a.taskId}` }) : null),
     el('td', { textContent: a.reason }),
   )));
+}
+
+/** Activity page: nothing listed until you search (or pick a source). */
+let searchTimer;
+async function searchActivity() {
+  if (!has('activity')) return;
+  filterButtons($('sourceFilters'), SOURCES, 'source', searchActivity);
+  const q = $('activitySearch').value.trim();
+  if (!q && filter.source === 'all') {
+    $('activity').replaceChildren();
+    $('activityEmpty').hidden = false;
+    $('activityEmpty').textContent = 'Search the last 500 events — nothing is listed until you do.';
+    return;
+  }
+  const r = await (await fetch(`/api/activity?q=${encodeURIComponent(q)}&source=${filter.source}`, { cache: 'no-store' })).json();
+  renderActivity(r.items);
+}
+if (has('activitySearch')) {
+  $('activitySearch').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(searchActivity, 200); };
+  searchActivity();
 }
 
 function render(d, force = false) {
@@ -617,7 +606,6 @@ function render(d, force = false) {
     renderInvestigations(d.investigations ?? []);
   }
   renderIgnored(d.ignoredBugs ?? []);
-  renderActivity(d.activity);
   window.Shell?.setUpdated(`Updated ${new Date(d.now).toLocaleTimeString()}`);
 }
 
@@ -633,6 +621,8 @@ async function refresh(force = false) {
 }
 refresh();
 setInterval(refresh, 5000);
+// The top bar's Refresh fetched new items: show them now, and rerun an open search.
+window.addEventListener('agents:refreshed', () => { refresh(true); searchActivity(); });
 </script>
 </body>
 </html>

@@ -68,13 +68,18 @@ export async function adoReceiver(o: {
       }
     },
 
-    /** Every open work item assigned to me (any type); open = ADO state category Proposed / InProgress. */
+    /**
+     * Every open work item assigned to me (any type) — new ones become tasks, and
+     * tasks whose item was closed or reassigned are closed. Runs on start and on
+     * the dashboard's Refresh. Open = ADO state category Proposed / InProgress.
+     */
     async catchUp() {
       const ids = await ado.wiql(
         "SELECT [System.Id] FROM WorkItems WHERE [System.AssignedTo] = @Me AND [System.State] NOT IN ('Closed', 'Removed', 'Cancelled') ORDER BY [System.ChangedDate] DESC",
       );
+      const mine = (await ado.bugs(ids)).filter((b) => isOpen(b.type, b.state) && b.assignedTo?.email === me.email);
       let created = 0;
-      for (const item of (await ado.bugs(ids)).filter((b) => isOpen(b.type, b.state))) {
+      for (const item of mine) {
         const out = await intake.track(item, 'assigned');
         if (out.action === 'created') {
           created++;
@@ -83,8 +88,15 @@ export async function adoReceiver(o: {
           o.activity.add({ source: 'ado', kind: 'catch-up', subject: `${item.type} ${item.id}`, action: 'created', reason: 'assigned', taskId: out.taskId, link: ado.bugUrl(item.id) });
         }
       }
-      log(`ado catch-up done: ${created} new task(s)`);
-      stats.caughtUp(`${created} new task(s)`);
+      const closed = await intake.reconcile(new Set(mine.map((b) => b.id)), (gone) => ado.bugs(gone));
+      for (const c of closed) {
+        log(`ado sync: closed task ${c.taskId} — work item ${c.bug} ${c.reason}`);
+        o.activity.add({ source: 'ado', kind: 'sync', subject: `Work item ${c.bug}`, action: 'done', reason: `task closed: ${c.reason}`, taskId: c.taskId, link: ado.bugUrl(c.bug) });
+      }
+      const summary = `${created} new, ${closed.length} closed`;
+      log(`ado catch-up done: ${summary}`);
+      stats.caughtUp(summary);
+      return summary;
     },
 
     async status() {

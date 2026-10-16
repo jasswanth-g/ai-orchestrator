@@ -99,6 +99,32 @@ export class BugIntake {
     return { bug: bug.id, action: 'annotated', reason: e.kind, taskId: item.id };
   }
 
+  /**
+   * Closes board tasks whose work item left my plate: closed/resolved in ADO,
+   * or assigned to someone else. `stillMine` = ids currently open and assigned
+   * to me; `fetch` reads the others to say why. Returns what was closed.
+   */
+  async reconcile(stillMine: Set<number>, fetch: (ids: number[]) => Promise<Bug[]>): Promise<Outcome[]> {
+    const open = (await this.o.store.list('work')).filter((t) => t.source === SOURCE);
+    const idOf = (t: Item) => Number(t.labels.find((l) => /^ado-\d+$/.test(l))?.slice(4));
+    const gone = open.filter((t) => idOf(t) && !stillMine.has(idOf(t)));
+    if (!gone.length) return [];
+    const items = new Map((await fetch(gone.map(idOf))).map((b) => [b.id, b]));
+    const out: Outcome[] = [];
+    for (const task of gone) {
+      const bug = items.get(idOf(task));
+      const reason = !bug
+        ? 'no longer found in Azure DevOps'
+        : !this.isOpen(bug)
+          ? `${bug.state} in Azure DevOps`
+          : `now assigned to ${bug.assignedTo?.name ?? 'nobody'}`;
+      await this.o.store.comment(task.id, `Closed by sync: ${reason}.`);
+      await this.o.store.close(task.id);
+      out.push({ bug: idOf(task), action: 'ignored', reason, taskId: task.id });
+    }
+    return out;
+  }
+
   /** Creates the task for a bug found outside an event (startup catch-up). */
   async track(bug: Bug, reason: string): Promise<Outcome> {
     if (this.o.isIgnored?.(bug.id)) return { bug: bug.id, action: 'ignored', reason: 'you ignored this bug' };

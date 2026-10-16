@@ -11,6 +11,8 @@
     investigator: svg('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
     developer: svg('<path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/>'),
     whatsapp: svg('<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>'),
+    refresh: svg('<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>'),
+    activity: svg('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>'),
     tasks: svg('<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>'),
     external: svg('<path d="M7 7h10v10"/><path d="M7 17 17 7"/>'),
     moon: svg('<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>'),
@@ -24,7 +26,8 @@
     { path: '/investigator', key: 'investigator', label: 'Investigator' },
     { path: null, key: 'developer', label: 'Developer', soon: true },
   ];
-  const current = PAGES.find((p) => p.path === location.pathname) ?? (location.pathname === '/whatsapp' ? { key: 'whatsapp', label: 'WhatsApp' } : PAGES[0]);
+  const OTHER = { '/whatsapp': { key: 'whatsapp', label: 'WhatsApp' }, '/activity': { key: 'activity', label: 'Activity' } };
+  const current = PAGES.find((p) => p.path === location.pathname) ?? OTHER[location.pathname] ?? PAGES[0];
 
   // ── Theme: saved choice, else the system setting ──────────────────────
   const readTheme = () => { try { return localStorage.getItem('agents-theme'); } catch { return null; } };
@@ -46,6 +49,7 @@
       <div class="nav-label">Connections</div>
       <a class="nav-item${current.key === 'whatsapp' ? ' active' : ''}" href="/whatsapp">${ICONS.whatsapp}<span class="grow">WhatsApp</span><span class="nav-badge" data-badge="whatsapp" hidden></span></a>
       <div class="sidebar-bottom">
+        <a class="nav-item${current.key === 'activity' ? ' active' : ''}" href="/activity">${ICONS.activity}<span class="grow">Activity</span></a>
         <a class="nav-item" id="todoBoard" href="http://127.0.0.1:4319" target="_blank" rel="noopener">${ICONS.tasks}<span class="grow">Tasks board</span>${ICONS.external}</a>
         <button type="button" class="nav-item theme-toggle" id="themeToggle"></button>
       </div>`;
@@ -61,7 +65,29 @@
       <button type="button" class="menu-button" id="menuButton" aria-label="Open navigation">${ICONS.menu}</button>
       <span class="crumbs">Agents / <strong>${current.label}</strong></span>
       <span class="spacer"></span>
-      <span class="updated" id="shellUpdated"></span>`;
+      <span class="updated" id="shellUpdated"></span>
+      <button type="button" class="refresh-button" id="refreshButton" title="Fetch the latest from Azure DevOps and WhatsApp now">${ICONS.refresh}<span>Refresh</span></button>`;
+    const button = document.getElementById('refreshButton');
+    const NAMES = { ado: 'Azure DevOps', whatsapp: 'WhatsApp' };
+    button.onclick = async () => {
+      button.disabled = true;
+      button.classList.add('spinning');
+      window.Shell.setUpdated('Refreshing…', true);
+      try {
+        const res = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        if (!res.ok) throw new Error(await res.text());
+        const { results } = await res.json();
+        const text = results.map((r) => `${NAMES[r.source] ?? r.source}: ${r.error ? `failed — ${r.error}` : r.summary}`).join(' · ') || 'Nothing to refresh';
+        window.Shell.setUpdated(text, true);
+        window.dispatchEvent(new CustomEvent('agents:refreshed', { detail: results }));
+        counts();
+      } catch (e) {
+        window.Shell.setUpdated(`Refresh failed — ${e.message}`, true);
+      } finally {
+        button.disabled = false;
+        button.classList.remove('spinning');
+      }
+    };
     const app = document.querySelector('.app');
     document.getElementById('menuButton').onclick = () => app?.classList.add('nav-open');
     document.querySelector('.scrim')?.addEventListener('click', () => app?.classList.remove('nav-open'));
@@ -94,10 +120,15 @@
   counts();
   setInterval(counts, 10000);
 
+  // A Refresh result stays visible for a while; routine "Updated" ticks don't overwrite it.
+  let pinnedUntil = 0;
   window.Shell = {
-    setUpdated(text) {
+    setUpdated(text, pin = false) {
       const el = document.getElementById('shellUpdated');
-      if (el) el.textContent = text;
+      if (!el) return;
+      if (pin) pinnedUntil = Date.now() + 15000;
+      else if (Date.now() < pinnedUntil) return;
+      el.textContent = text;
     },
   };
 })();

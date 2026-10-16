@@ -7,8 +7,8 @@ export interface Receiver {
   name: string;
   path: string;
   handle(req: Request): Promise<Response>;
-  /** Picks up whatever happened while the server was down. */
-  catchUp(): Promise<void>;
+  /** Picks up whatever happened while the server was down (also the dashboard's Refresh). Returns a one-line summary. */
+  catchUp(): Promise<string | void>;
   /** For the dashboard's source card. */
   status(): Promise<Record<string, unknown>>;
 }

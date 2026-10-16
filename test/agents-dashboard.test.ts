@@ -183,3 +183,41 @@ describe('Done → Azure DevOps', () => {
     expect(activity.recent(1)[0]).toMatchObject({ action: 'error' });
   });
 });
+
+test('activity is searched, not listed on the board', async () => {
+  const { agentsDashboard } = await import('../src/agents-dashboard/routes.ts');
+  const { Settings, BugNotes } = await import('../src/agents-settings.ts');
+  const t = (n: string) => `${process.env.TMPDIR ?? '/tmp'}/${n}-${Date.now()}-${Math.random()}`;
+  const activity = new ActivityLog(t('a'));
+  activity.add({ source: 'ado', kind: 'catch-up', subject: 'Task 20743', action: 'created', reason: 'assigned', taskId: '81' });
+  activity.add({ source: 'dashboard', kind: 'done', subject: 'Task 20717: DMS', action: 'error', reason: 'Azure DevOps refused' });
+  const handle = agentsDashboard({ port: 4320, store: new InMemoryStore(), receivers: [], activity, adoOn: true, settings: new Settings(t('s'), { watch: [], keywords: [] }), bugNotes: new BugNotes(t('n')), todoDashboardUrl: '' });
+  const get = async (path: string) => (await (await handle(new Request(`http://127.0.0.1:4320${path}`, { headers: { host: '127.0.0.1:4320' } })))!.json()) as any;
+  expect((await get('/api/overview')).activity).toBeUndefined();
+  expect((await get('/api/activity?q=20743')).items.map((a: any) => a.subject)).toEqual(['Task 20743']);
+  expect((await get('/api/activity?q=refused%20dms')).items).toHaveLength(1);
+  expect((await get('/api/activity?q=&source=ado')).items).toHaveLength(1);
+  expect((await get('/api/activity?q=%2381')).items[0].subject).toBe('Task 20743');
+  const page = await handle(new Request('http://127.0.0.1:4320/activity', { headers: { host: '127.0.0.1:4320' } }));
+  expect(page?.status).toBe(200);
+});
+
+test('Refresh runs every source once, even when clicked twice, and logs the result', async () => {
+  const { agentsDashboard } = await import('../src/agents-dashboard/routes.ts');
+  const { Settings, BugNotes } = await import('../src/agents-settings.ts');
+  const t = (n: string) => `${process.env.TMPDIR ?? '/tmp'}/${n}-${Date.now()}-${Math.random()}`;
+  let runs = 0;
+  const receivers: any[] = [
+    { name: 'ado', path: '/hooks/ado', handle: async () => new Response(), status: async () => ({}), catchUp: async () => { runs++; await new Promise((r) => setTimeout(r, 20)); return '1 new, 2 closed'; } },
+    { name: 'whatsapp', path: '/hooks/whatsapp', handle: async () => new Response(), status: async () => ({}), catchUp: async () => { throw new Error('bridge store missing'); } },
+  ];
+  const activity = new ActivityLog(t('a'));
+  const handle = agentsDashboard({ port: 4320, store: new InMemoryStore(), receivers, activity, adoOn: true, settings: new Settings(t('s'), { watch: [], keywords: [] }), bugNotes: new BugNotes(t('n')), todoDashboardUrl: '' });
+  const post = () => handle(new Request('http://127.0.0.1:4320/api/sync', { method: 'POST', headers: { host: '127.0.0.1:4320', 'content-type': 'application/json' }, body: '{}' }));
+  const [a, b] = await Promise.all([post(), post()]);
+  expect(runs).toBe(1);
+  expect(await a!.json()).toEqual({ results: [{ source: 'ado', summary: '1 new, 2 closed' }, { source: 'whatsapp', error: 'bridge store missing' }] });
+  expect(b?.status).toBe(200);
+  expect(activity.recent(1)[0]).toMatchObject({ kind: 'refresh', action: 'error', reason: 'ado: 1 new, 2 closed · whatsapp: bridge store missing' });
+  expect((await handle(new Request('http://127.0.0.1:4320/api/sync', { method: 'POST', headers: { host: '127.0.0.1:4320', 'content-type': 'text/plain' }, body: 'x' })))?.status).toBe(415);
+});

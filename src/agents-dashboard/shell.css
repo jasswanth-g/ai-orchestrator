@@ -110,6 +110,12 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .crumbs strong { color: var(--text); font-weight: 550; }
 .topbar .spacer { flex: 1; }
 .topbar .updated { font-size: 12px; color: var(--muted); }
+.refresh-button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; }
+.refresh-button svg { width: 14px; height: 14px; stroke-width: 1.9; }
+.refresh-button.spinning svg { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .refresh-button.spinning svg { animation: none; } }
+.topbar .updated { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu-button { display: none; border: 0; background: none; color: var(--nav); padding: 6px; border-radius: 7px; cursor: pointer; }
 .menu-button svg { width: 18px; height: 18px; }
 .main-content { max-width: 1090px; margin: 0 auto; padding: 36px 40px 56px; }
