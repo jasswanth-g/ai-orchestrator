@@ -10,7 +10,10 @@ import type { Item } from '../types.ts';
 import type { Developer } from '../developer/service.ts';
 import type { Investigator } from '../investigator/service.ts';
 import type { BridgeSupervisor } from '../whatsapp/bridge.ts';
+import type { Drafts } from '../whatsapp/drafts.ts';
+import type { WhatsAppReceiver } from '../whatsapp/receiver.ts';
 import { listChats } from '../whatsapp/receiver.ts';
+import { listSenders, loadPeople } from '../whatsapp/people.ts';
 
 /**
  * Agents dashboard: source status, open agent tasks, the activity feed, and
@@ -59,6 +62,8 @@ export function agentsDashboard(o: {
   investigator?: Investigator;
   /** Unset when ADO is off. */
   developer?: Developer;
+  /** Draft replies for 1:1 WhatsApp chats (never sent). */
+  drafts?: Drafts;
   /** Which commit the server runs vs. what's on disk (stale = restart needed). */
   codeStatus?: () => { running: string; current: string; stale: boolean };
   /** For Done → Azure DevOps state changes; unset when ADO is off. */
@@ -113,6 +118,7 @@ export function agentsDashboard(o: {
           donePlan: bugId && o.ado ? doneLabel(TYPE_LABELS.find((l) => t.labels.includes(l)), o.reports?.get(bugId)?.verdict) : undefined,
           investigation: bugId ? investigations.get(bugId) : undefined,
           development: bugId ? devSessions.get(bugId) : undefined,
+          ...(t.source === 'whatsapp' && t.link ? waDraft(t.link) : {}),
         };
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -147,7 +153,8 @@ export function agentsDashboard(o: {
   function chats() {
     const { watch, keywords } = o.settings.whatsapp;
     const known = o.waStoreDir ? listChats(o.waStoreDir) : [];
-    const list = known.map((c) => ({ ...c, watched: watch.includes(c.jid) || watch.includes(c.name) }));
+    const purpose = o.settings.whatsapp.purpose ?? {};
+    const list = known.map((c) => ({ ...c, watched: watch.includes(c.jid) || watch.includes(c.name), purpose: purpose[c.jid] ?? '' }));
     // Watched entries the bridge hasn't seen (e.g. a name from the old env var) stay visible.
     const missing = watch.filter((w) => !known.some((c) => c.jid === w || c.name === w));
     return { chats: list, missing, keywords };
@@ -210,6 +217,30 @@ export function agentsDashboard(o: {
     return syncing;
   }
 
+  /** A WhatsApp task's draft and, for a phone-number chat, the number for "Open in WhatsApp". */
+  function waDraft(chatJid: string) {
+    const draft = o.drafts?.get(chatJid);
+    const phone = chatJid.endsWith('@s.whatsapp.net') ? chatJid.split('@')[0]!.split(':')[0] : undefined;
+    return { chatJid, phone, draft };
+  }
+
+  /** People who posted in my watched groups, with whether I tagged them as my team. */
+  function people() {
+    if (!o.waStoreDir) return { people: [], team: [] };
+    const known = listChats(o.waStoreDir);
+    const groups = o.settings.whatsapp.watch.filter((w) => w.endsWith('@g.us') || known.some((c) => c.name === w && c.isGroup)).map((w) => known.find((c) => c.name === w)?.jid ?? w);
+    const p = loadPeople(o.waStoreDir);
+    const team = o.settings.team;
+    const senders = listSenders(o.waStoreDir, groups, p, (j) => known.find((c) => c.jid === j)?.name ?? j).map((s) => {
+      const key = p.aliases(s.id).find((a) => a in team);
+      return { ...s, team: !!key, teamKey: key, name: (key && team[key]) || s.name };
+    });
+    // Tagged people who haven't posted in a watched group yet (e.g. added by number).
+    const listed = new Set(senders.flatMap((s) => p.aliases(s.id)));
+    const extra = Object.entries(team).filter(([id]) => !listed.has(id)).map(([id, name]) => ({ id, name, phone: p.phone(id), messages: 0, chats: [], team: true, teamKey: id }));
+    return { people: [...senders, ...extra] };
+  }
+
   /** Writes, by path. Each returns the JSON body to send. */
   async function write(path: string, body: Record<string, unknown>): Promise<unknown> {
     let m: RegExpExecArray | null;
@@ -226,6 +257,44 @@ export function agentsDashboard(o: {
       } catch (err) {
         throw new HttpError(400, err instanceof Error ? err.message.replace(/^ADO \S+ \S+ → /, 'Azure DevOps: ') : String(err));
       }
+    }
+
+    if ((m = /^\/api\/whatsapp\/drafts\/(edit|regenerate|discard)$/.exec(path))) {
+      const chatJid = typeof body.chatJid === 'string' ? body.chatJid : '';
+      if (!chatJid || !o.drafts) throw new HttpError(400, 'chatJid required');
+      if (m[1] === 'edit') {
+        const d = o.drafts.edit(chatJid, typeof body.text === 'string' ? body.text : '');
+        if (!d) throw new HttpError(404, 'no draft for this chat');
+        return d;
+      }
+      if (m[1] === 'discard') {
+        o.drafts.clear(chatJid);
+        const task = (await o.store.list('work')).find((t) => t.source === 'whatsapp' && t.link === chatJid);
+        if (task) await o.store.update(task.id, { labels: task.labels.filter((l) => l !== 'draft-ready') });
+        return { ok: true };
+      }
+      const wa = o.receivers.find((r) => r.name === 'whatsapp') as WhatsAppReceiver | undefined;
+      if (!wa?.redraft) throw new HttpError(409, 'WhatsApp is off');
+      try {
+        await wa.redraft(chatJid);
+      } catch (err) {
+        throw new HttpError(400, err instanceof Error ? err.message : String(err));
+      }
+      return o.drafts.get(chatJid) ?? { ok: false };
+    }
+
+    if (path === '/api/settings/whatsapp-team') {
+      const id = typeof body.id === 'string' ? body.id.replace(/[\s+()-]/g, '') : '';
+      if (!/^\d{6,20}$/.test(id)) throw new HttpError(400, 'a phone number (with country code, e.g. 919876543210) or a WhatsApp id');
+      o.settings.setTeamMember(id, typeof body.name === 'string' ? body.name : '', body.member !== false);
+      o.activity.add({ source: 'dashboard', kind: 'team', subject: typeof body.name === 'string' && body.name ? body.name : id, action: 'annotated', reason: body.member === false ? 'removed from your team' : 'tagged as your team' });
+      return { ok: true };
+    }
+
+    if (path === '/api/settings/whatsapp-purpose') {
+      if (typeof body.jid !== 'string' || !body.jid) throw new HttpError(400, 'jid required');
+      o.settings.setPurpose(body.jid, typeof body.text === 'string' ? body.text : '');
+      return { jid: body.jid, purpose: o.settings.purposeOf(body.jid) ?? '' };
     }
 
     if (path === '/api/settings/whatsapp') {
@@ -336,6 +405,7 @@ export function agentsDashboard(o: {
         if (PAGES.has(url.pathname)) return new Response(page, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
         if (url.pathname === '/api/overview') return Response.json(await overview(), { headers: { 'Cache-Control': 'no-store' } });
         if (url.pathname === '/api/whatsapp/chats') return Response.json(chats(), { headers: { 'Cache-Control': 'no-store' } });
+        if (url.pathname === '/api/whatsapp/people') return Response.json(people(), { headers: { 'Cache-Control': 'no-store' } });
         if (url.pathname === '/api/activity') return Response.json(searchActivity(url.searchParams), { headers: { 'Cache-Control': 'no-store' } });
         const dev = /^\/api\/bugs\/(\d+)\/dev$/.exec(url.pathname);
         if (dev && o.developer) return Response.json(o.developer.changes(Number(dev[1])), { headers: { 'Cache-Control': 'no-store' } });

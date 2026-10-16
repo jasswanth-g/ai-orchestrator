@@ -200,6 +200,44 @@ server and the WhatsApp MCP server (`whatsapp-mcp-server/whatsapp.py`) read it
 from there. A custom header also means a web page can't call the bridge from
 your browser.
 
+**AI reading of group context.** Group messages in watched chats that the rules
+below would skip go to an AI step instead (live messages only — no AI on old
+history). Messages in a chat are collected for ~15 s so a burst is judged once.
+The AI first sees the **5 messages before** them; only if it says the context
+isn't clear does it get 5 more, and so on, up to 30 — usually one call is
+enough. It answers for-me / not, the kind (question, request, issue, decision),
+a one-line summary of what's asked of you, and why. For-me → the chat's task is
+created or updated (label `ai-<kind>`, the summary in its title and notes);
+not → the Skipped list, with the AI's reason. If the AI is unavailable, the
+rules' decision stands and the feed says so.
+
+Under **WhatsApp chats** on the Messenger page, each watched group has **What
+this group is for** — a line or two in your words (who's in it, what you're
+expected to do there). The AI reads it with every decision for that group.
+
+It runs as headless Claude Code on your login (`claude -p`) with no tools, no
+MCP and no hooks; it only sees the text it's given. `WHATSAPP_AI=off` turns it
+off; `WHATSAPP_AI_MODEL` picks a model (default: your Claude Code default).
+
+**Team members.** On the Messenger page, **Team members** lists everyone who has
+posted in your watched groups, named from your WhatsApp contacts (a person's
+private id and phone number are matched as one). Tick your Qwipo colleagues, or
+add one by phone number. The AI then sees them as `[team]`: a partner's
+question a colleague already answered or took isn't put on you (unless the
+partner chases again), and a colleague asking you directly is. When a colleague
+posts in a chat where your task still `needs-reply`, the task gets their message
+as a note and the `team-replied` label — it stays open; you decide.
+
+**Drafts, never replies.** The agents never send WhatsApp messages — no code in
+`src/` calls the bridge's send API (a test enforces it). When a 1:1 message for
+you arrives (a burst is collected for ~15 s), the AI reads the last 12 messages
+of that chat and **drafts** a reply in your voice: short, no invented facts or
+dates — when something is unknown it writes a holding reply and says what to
+check. The draft waits on the chat's task (`draft-ready`): edit it, **Copy** it,
+**Open in WhatsApp** (opens the chat with the draft typed in — you press send),
+**Regenerate** or **Discard**. Replying in that chat yourself clears it.
+Drafts live in `whatsapp-drafts.json`.
+
 A message is **for me** when it mentions me, replies to me, is a 1:1 chat, or
 contains one of `WHATSAPP_KEYWORDS`. One open task per chat (`wa-<chat>`)
 collects those messages as comments and carries `needs-reply`; my own reply in

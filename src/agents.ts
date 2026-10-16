@@ -14,6 +14,8 @@ import { SeenIds } from './events/seen.ts';
 import { resolvePath } from './tools/files.ts';
 import { BridgeSupervisor, bridgeSecret } from './whatsapp/bridge.ts';
 import { listChats, whatsappReceiver } from './whatsapp/receiver.ts';
+import { Drafts, DRAFT_SCHEMA, type DraftOut } from './whatsapp/drafts.ts';
+import { claudeAsk, claudeJson } from './whatsapp/triage.ts';
 import { whatsappUi } from './whatsapp/ui.ts';
 
 /**
@@ -115,6 +117,7 @@ const developer = investigator
   : undefined;
 
 const bridgeOn = process.env.WHATSAPP_BRIDGE !== 'off';
+const waDrafts = new Drafts(join(stateDir, 'whatsapp-drafts.json'));
 const waStoreDir = resolvePath(process.env.WHATSAPP_STORE_DIR ?? '~/Documents/GitHub/whatsapp-mcp/whatsapp-bridge/store');
 // Shared with the bridge and the WhatsApp MCP server via <store>/bridge-secret.
 const waSecret = bridgeOn ? bridgeSecret(waStoreDir) : '';
@@ -131,6 +134,17 @@ if (bridgeOn) {
       activity,
       skipped: new ActivityLog(join(stateDir, 'whatsapp-skipped.jsonl'), 100),
       statsFile: join(stateDir, 'whatsapp-stats.json'),
+      // AI reading of group context (off with WHATSAPP_AI=off; WHATSAPP_AI_MODEL picks the model).
+      ai:
+        process.env.WHATSAPP_AI === 'off'
+          ? undefined
+          : { ask: claudeAsk({ model: process.env.WHATSAPP_AI_MODEL || undefined }), names: () => settings.whatsapp.keywords, purpose: settings.purposeOf },
+      team: () => settings.team,
+      // Draft replies for 1:1 chats — the agents never send WhatsApp messages.
+      drafts:
+        process.env.WHATSAPP_AI === 'off'
+          ? undefined
+          : { store: waDrafts, write: claudeJson<DraftOut>(DRAFT_SCHEMA, { model: process.env.WHATSAPP_AI_MODEL || undefined }), names: () => settings.whatsapp.keywords },
     }),
   );
 } else log('whatsapp: off (WHATSAPP_BRIDGE=off)');
@@ -161,6 +175,7 @@ const dashboard = agentsDashboard({
   investigator,
   developer,
   codeStatus,
+  drafts: waDrafts,
   ado: adoClient,
   reports: reportsDb,
   waStoreDir: bridgeOn ? waStoreDir : undefined,

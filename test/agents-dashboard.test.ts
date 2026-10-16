@@ -107,7 +107,7 @@ describe('dashboard task actions', () => {
 
   test('WhatsApp settings are saved, trimmed and de-duplicated', async () => {
     const res = await postJson('/api/settings/whatsapp', { watch: ['1@g.us', ' 1@g.us', '2@g.us'], keywords: ['Jass', ' ', 'Jass'] });
-    expect(await res!.json()).toEqual({ watch: ['1@g.us', '2@g.us'], keywords: ['Jass'] });
+    expect(await res!.json()).toEqual({ watch: ['1@g.us', '2@g.us'], keywords: ['Jass'], purpose: {}, team: {} });
     expect(settings.whatsapp.watch).toEqual(['1@g.us', '2@g.us']);
   });
 });

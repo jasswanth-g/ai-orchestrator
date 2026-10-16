@@ -7,6 +7,9 @@ import { type ActivityLog, SourceStats } from '../events/activity.ts';
 import type { SeenIds } from '../events/seen.ts';
 import type { Store } from '../store/store.ts';
 import { type WaMessage, WhatsAppIntake } from './intake.ts';
+import { type Drafts, draftReply, type Write } from './drafts.ts';
+import { loadPeople, type People } from './people.ts';
+import { type Ask, type ChatLine, triage } from './triage.ts';
 
 export interface WaChat {
   jid: string;
@@ -43,6 +46,11 @@ export function listChats(storeDir: string): WaChat[] {
   }
 }
 
+export interface WhatsAppReceiver extends Receiver {
+  /** Drafts a fresh reply for a 1:1 chat now (the dashboard's Regenerate). Never sends. */
+  redraft(chatJid: string): Promise<void>;
+}
+
 /**
  * Live messages from the WhatsApp bridge (bridges/whatsapp/forward.go) →
  * todo-brain tasks (intake.ts). catchUp() replays the bridge's messages.db
@@ -61,7 +69,13 @@ export function whatsappReceiver(o: {
   /** Messages in watched chats that were judged not for me. */
   skipped: ActivityLog;
   statsFile: string;
-}): Receiver {
+  /** AI reading of group context for messages the rules skip; unset = rules only. */
+  ai?: { ask: Ask; names: () => string[]; purpose?: (chatJid: string) => string | undefined; debounceMs?: number };
+  /** My company's people (id → name); their messages are tagged [team] for the AI. */
+  team?: () => Record<string, string>;
+  /** Draft replies for 1:1 chats — never sent; unset = no drafts. */
+  drafts?: { store: Drafts; write: Write; names: () => string[]; debounceMs?: number };
+}): WhatsAppReceiver {
   const stats = new SourceStats(o.statsFile);
   /** Watch entries are JIDs; show names where the bridge knows them. */
   const chatName = (entry: string) => (entry.includes('@') ? (listChats(o.storeDir).find((c) => c.jid === entry)?.name ?? entry) : entry);
@@ -73,17 +87,170 @@ export function whatsappReceiver(o: {
     return watch.includes(m.chat_jid) || (!!m.chat_name && watch.includes(m.chat_name));
   };
 
+  // ── AI step ────────────────────────────────────────────────────────────
+  // Group messages the rules skip wait briefly per chat (a burst is judged
+  // together), then one AI call decides, reading earlier messages in chunks.
+  const senderNames = new Map<string, string>();
+  // Names from WhatsApp contacts + LID ↔ phone mapping; reloaded at most every 5 minutes.
+  let people: People | undefined;
+  let peopleAt = 0;
+  const who = (): People => {
+    if (!people || Date.now() - peopleAt > 300_000) (people = loadPeople(o.storeDir, senderNames)), (peopleAt = Date.now());
+    return people;
+  };
+  const isTeam = (sender: string) => {
+    const team = o.team?.() ?? {};
+    return who().aliases(sender).some((a) => a in team);
+  };
+  /** "Akshith [team]" / "Ravi" / the id when nothing better is known. */
+  const display = (sender: string, live?: string) => {
+    const team = o.team?.() ?? {};
+    const teamName = who().aliases(sender).map((a) => team[a]).find(Boolean);
+    const name = teamName || live || who().name(sender) || sender;
+    return isTeam(sender) ? `${name} [team]` : name;
+  };
+  const pending = new Map<string, { batch: WaMessage[]; timer: ReturnType<typeof setTimeout> }>();
+  let queue: Promise<unknown> = Promise.resolve();
+
+  function history(chatJid: string, before: WaMessage[]): (offset: number, limit: number) => ChatLine[] {
+    const ids = new Set(before.map((m) => m.id));
+    const first = new Date(before[0]!.timestamp).getTime();
+    // strict: named parameters bind as `{ chat }` (without it they'd silently bind nothing).
+    const db = new Database(join(o.storeDir, 'messages.db'), { readonly: true, strict: true });
+    try {
+      const rows = db
+        .query<{ id: string; sender: string; content: string | null; media_type: string | null; timestamp: string; is_from_me: number }, { chat: string }>(
+          'SELECT id, sender, content, media_type, timestamp, is_from_me FROM messages WHERE chat_jid = $chat ORDER BY timestamp DESC LIMIT 200',
+        )
+        .all({ chat: chatJid })
+        .filter((r) => !ids.has(r.id) && new Date(r.timestamp.replace(' ', 'T')).getTime() <= first)
+        .map((r) => ({
+          from: r.is_from_me ? 'You' : display(r.sender, senderNames.get(r.sender)),
+          text: r.content || (r.media_type ? `[${r.media_type}]` : ''),
+          at: new Date(r.timestamp.replace(' ', 'T')).toISOString(),
+        }));
+      return (offset, limit) => rows.slice(offset, offset + limit);
+    } finally {
+      db.close();
+    }
+  }
+
+  const lineOf = (m: WaMessage): ChatLine => ({ from: m.is_from_me ? 'You' : display(m.sender, m.sender_name), text: m.content || (m.media_type ? `[${m.media_type}]` : ''), at: m.timestamp });
+  const skip = (m: WaMessage, reason: string, via: string) => {
+    const text = m.content || (m.media_type ? `[${m.media_type}]` : '');
+    o.skipped.add({ source: 'whatsapp', kind: via, subject: m.chat_name || m.chat_jid, action: 'ignored', reason, detail: `${m.sender_name || m.sender}: ${text.slice(0, 200)}` });
+  };
+
+  async function judge(batch: WaMessage[]) {
+    const m = batch.at(-1)!;
+    const chat = m.chat_name || m.chat_jid;
+    try {
+      const d = await triage({ chat, incoming: batch.map(lineOf), history: history(m.chat_jid, batch), ask: o.ai!.ask, me: { names: o.ai!.names() }, purpose: o.ai!.purpose?.(m.chat_jid) });
+      if (d.forMe) {
+        const out = await intake.fromAi(batch, d);
+        stats.record(out.action, true);
+        log(`whatsapp ai ${chat}: ${out.action} (${d.kind}) task ${out.taskId} — ${d.summary} [read ${d.contextUsed} earlier]`);
+        o.activity.add({ source: 'whatsapp', kind: 'ai', subject: chat, action: out.action, reason: `AI (${d.kind}): ${d.summary} — read ${d.contextUsed} earlier message(s)`, taskId: out.taskId });
+      } else {
+        for (const x of batch) skip(x, `AI: ${d.why} (read ${d.contextUsed} earlier)`, 'ai');
+      }
+    } catch (err) {
+      // AI unavailable (logged out, offline): the rules' "not for me" stands.
+      log(`whatsapp ai failed for ${chat}: ${errText(err)}`);
+      o.activity.add({ source: 'whatsapp', kind: 'ai', subject: chat, action: 'error', reason: `AI step failed, kept the rules' decision: ${errText(err).slice(0, 200)}` });
+      for (const x of batch) skip(x, 'not for me (rules; AI unavailable)', 'live');
+    }
+  }
+
+  // ── Drafts for 1:1 chats (never sent) ─────────────────────────────────
+  const draftPending = new Map<string, { last: WaMessage; timer: ReturnType<typeof setTimeout> }>();
+
+  /** The chat's latest messages, oldest first. */
+  function recent(chatJid: string, limit: number): ChatLine[] {
+    const db = new Database(join(o.storeDir, 'messages.db'), { readonly: true, strict: true });
+    try {
+      return db
+        .query<{ sender: string; content: string | null; media_type: string | null; timestamp: string; is_from_me: number }, { chat: string; n: number }>(
+          'SELECT sender, content, media_type, timestamp, is_from_me FROM messages WHERE chat_jid = $chat ORDER BY timestamp DESC LIMIT $n',
+        )
+        .all({ chat: chatJid, n: limit })
+        .reverse()
+        .map((r) => ({
+          from: r.is_from_me ? 'You' : display(r.sender, senderNames.get(r.sender)),
+          text: r.content || (r.media_type ? `[${r.media_type}]` : ''),
+          at: new Date(r.timestamp.replace(' ', 'T')).toISOString(),
+        }));
+    } finally {
+      db.close();
+    }
+  }
+
+  async function writeDraft(m: WaMessage) {
+    const d = o.drafts!;
+    const chat = m.chat_name || m.sender_name || m.chat_jid;
+    try {
+      let conversation = recent(m.chat_jid, 12);
+      // The bridge stores before forwarding, but don't rely on it: make sure the message being answered is there.
+      if (!conversation.some((l) => l.text === m.content)) conversation = [...conversation, lineOf(m)];
+      const out = await draftReply({ chat, conversation, write: d.write, me: { names: d.names() } });
+      d.store.set({ chatJid: m.chat_jid, chatName: chat, text: out.reply, note: out.note || undefined, forMessageId: m.id, at: new Date().toISOString() });
+      const taskId = await intake.markDraft(m);
+      o.activity.add({ source: 'whatsapp', kind: 'draft', subject: chat, action: 'annotated', reason: 'reply drafted — waiting for you (not sent)', taskId });
+    } catch (err) {
+      log(`whatsapp draft failed for ${chat}: ${errText(err)}`);
+      o.activity.add({ source: 'whatsapp', kind: 'draft', subject: chat, action: 'error', reason: `could not draft a reply: ${errText(err).slice(0, 200)}` });
+    }
+  }
+
+  function enqueueDraft(m: WaMessage) {
+    const entry = draftPending.get(m.chat_jid);
+    if (entry) clearTimeout(entry.timer);
+    const timer = setTimeout(() => {
+      draftPending.delete(m.chat_jid);
+      queue = queue.then(() => writeDraft(m));
+    }, o.drafts!.debounceMs ?? 15_000);
+    draftPending.set(m.chat_jid, { last: m, timer });
+  }
+
+  function enqueue(m: WaMessage) {
+    const key = m.chat_jid;
+    const entry = pending.get(key) ?? { batch: [], timer: undefined as never };
+    clearTimeout(entry.timer);
+    entry.batch.push(m);
+    entry.timer = setTimeout(() => {
+      pending.delete(key);
+      // One AI call at a time, in arrival order.
+      queue = queue.then(() => judge(entry.batch));
+    }, o.ai!.debounceMs ?? 15_000);
+    pending.set(key, entry);
+  }
+
   async function processMessage(m: WaMessage, via: string) {
     if (o.seen.has(m.id)) return;
+    if (m.sender_name && !m.is_from_me) senderNames.set(m.sender, m.sender_name);
     if (watched(m)) {
+      // A colleague answering in a chat where I owe a reply: note it on my task.
+      if (m.is_group && !m.is_from_me && via === 'live' && isTeam(m.sender)) {
+        const name = display(m.sender, m.sender_name).replace(/ \[team\]$/, '');
+        const taskId = await intake.teamReplied(m, name);
+        if (taskId) o.activity.add({ source: 'whatsapp', kind: 'team', subject: m.chat_name || m.chat_jid, action: 'annotated', reason: `${name} (team) replied`, taskId });
+      }
       const out = await intake.handle(m);
-      stats.record(out.action, via === 'live');
+      // Live group chatter the rules skip goes to the AI step instead (not replays: no AI on old history).
+      const toAi = out.action === 'ignored' && !m.is_from_me && m.is_group && via === 'live' && !!o.ai;
+      if (!toAi) stats.record(out.action, via === 'live');
       // Ignored chatter goes to its own list; the main feed would drown in it.
-      if (out.action === 'ignored') {
-        if (!m.is_from_me) {
-          const text = m.content || (m.media_type ? `[${m.media_type}]` : '');
-          o.skipped.add({ source: 'whatsapp', kind: via, subject: m.chat_name || m.chat_jid, action: 'ignored', reason: out.reason, detail: `${m.sender_name || m.sender}: ${text.slice(0, 200)}` });
-        }
+      if (toAi) enqueue(m);
+      // 1:1: I replied myself → the draft is moot; their message for me → draft a reply (never sent).
+      if (!m.is_group && o.drafts && via === 'live') {
+        if (m.is_from_me) {
+          o.drafts.store.clear(m.chat_jid);
+          const pend = draftPending.get(m.chat_jid);
+          if (pend) (clearTimeout(pend.timer), draftPending.delete(m.chat_jid));
+        } else if (out.action !== 'ignored') enqueueDraft(m);
+      }
+      else if (out.action === 'ignored') {
+        if (!m.is_from_me) skip(m, out.reason, via);
       } else {
         log(`whatsapp ${via} ${m.chat_name}: ${out.action} (${out.reason}) task ${out.taskId}`);
         o.activity.add({ source: 'whatsapp', kind: via, subject: m.chat_name || m.chat_jid, action: out.action, reason: out.reason, taskId: out.taskId });
@@ -154,6 +321,15 @@ export function whatsappReceiver(o: {
       log(`whatsapp catch-up done: ${rows.length} message(s) since ${since.toISOString()}`);
       stats.caughtUp(`${rows.length} message(s) replayed`);
       return `${rows.length} new message(s) checked`;
+    },
+
+    async redraft(chatJid) {
+      if (!o.drafts) throw new Error('drafts are off');
+      const lines = recent(chatJid, 12);
+      const lastTheirs = [...lines].reverse().find((l) => l.from !== 'You');
+      if (!lastTheirs) throw new Error('no message from them to reply to');
+      const name = o.drafts.store.get(chatJid)?.chatName ?? listChats(o.storeDir).find((c) => c.jid === chatJid)?.name ?? chatJid;
+      await writeDraft({ id: `redraft-${Date.now()}`, chat_jid: chatJid, chat_name: name, is_group: false, sender: '', is_from_me: false, content: lastTheirs.text, timestamp: lastTheirs.at, me: [] });
     },
 
     async status() {

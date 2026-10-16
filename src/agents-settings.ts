@@ -18,6 +18,10 @@ export interface AgentSettings {
     watch: string[];
     /** Words that make a group message "for me". */
     keywords: string[];
+    /** Per chat JID: what the group is for, in my words — given to the AI step. */
+    purpose?: Record<string, string>;
+    /** My company's people: WhatsApp ids (phone number or LID user part) → display name. */
+    team?: Record<string, string>;
   };
   /** Bugs I don't want to work on: no task, later events ignored. */
   ignoredBugs: IgnoredBug[];
@@ -44,7 +48,7 @@ export class Settings {
   constructor(private readonly file: string, defaults: AgentSettings['whatsapp']) {
     const saved = readJson<Partial<AgentSettings>>(file, {});
     this.value = {
-      whatsapp: { watch: saved.whatsapp?.watch ?? defaults.watch, keywords: saved.whatsapp?.keywords ?? defaults.keywords },
+      whatsapp: { watch: saved.whatsapp?.watch ?? defaults.watch, keywords: saved.whatsapp?.keywords ?? defaults.keywords, purpose: saved.whatsapp?.purpose ?? {}, team: saved.whatsapp?.team ?? {} },
       ignoredBugs: saved.ignoredBugs ?? [],
     };
   }
@@ -55,8 +59,34 @@ export class Settings {
 
   setWhatsApp(w: AgentSettings['whatsapp']): void {
     const clean = (xs: string[]) => [...new Set(xs.map((x) => x.trim()).filter(Boolean))];
-    this.value.whatsapp = { watch: clean(w.watch), keywords: clean(w.keywords) };
+    this.value.whatsapp = { watch: clean(w.watch), keywords: clean(w.keywords), purpose: this.value.whatsapp.purpose ?? {}, team: this.value.whatsapp.team ?? {} };
     writeJson(this.file, this.value);
+  }
+
+  /** What a group is for (empty text clears it). */
+  setPurpose(chatJid: string, text: string): void {
+    const purpose = { ...(this.value.whatsapp.purpose ?? {}) };
+    const t = text.trim().slice(0, 600);
+    if (t) purpose[chatJid] = t;
+    else delete purpose[chatJid];
+    this.value.whatsapp = { ...this.value.whatsapp, purpose };
+    writeJson(this.file, this.value);
+  }
+
+  purposeOf = (chatJid: string): string | undefined => this.value.whatsapp.purpose?.[chatJid];
+
+  /** Tag or untag a WhatsApp id as one of my company's people. */
+  setTeamMember(id: string, name: string, member: boolean): void {
+    const team = { ...(this.value.whatsapp.team ?? {}) };
+    const key = id.replace(/^\+/, '').split('@')[0]!.split(':')[0]!;
+    if (member) team[key] = name.trim() || key;
+    else delete team[key];
+    this.value.whatsapp = { ...this.value.whatsapp, team };
+    writeJson(this.file, this.value);
+  }
+
+  get team(): Record<string, string> {
+    return this.value.whatsapp.team ?? {};
   }
 
   get ignoredBugs(): IgnoredBug[] {

@@ -71,6 +71,12 @@
   pre.diff .del { background: var(--bad-bg); color: var(--bad); display: block; }
   pre.diff .hunk { color: var(--info); display: block; }
   pre.diff .file { font-weight: 600; display: block; margin-top: 8px; }
+  .purpose { display: grid; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .purpose textarea { min-height: 56px; }
+  .draft { margin-top: 8px; padding: 10px 12px; border-radius: 9px; background: var(--info-bg); display: grid; gap: 6px; }
+  .draft .label { font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--info); }
+  .draft textarea { min-height: 64px; background: var(--card); }
+  .draft .note { font-size: 12px; color: var(--warn); }
   .alert { display: flex; gap: 8px; align-items: baseline; padding: 10px 14px; border-radius: 9px; margin-bottom: 12px; font-size: 13px; font-weight: 500; }
 </style>
 </head>
@@ -100,6 +106,7 @@
   <section class="card section" data-views="messenger">
     <div class="row"><h2 style="margin:0">WhatsApp chats</h2><button type="button" class="btn" id="pickChats">Choose chats &amp; keywords</button></div>
     <p class="muted" id="waSummary" style="margin:8px 0 0"></p>
+    <div id="purposes"></div>
     <div class="panel" id="picker" hidden>
         <input type="search" id="chatSearch" placeholder="Search chats">
         <div class="toolbar" style="margin-top:8px">
@@ -159,6 +166,24 @@
       <tbody id="tasks"></tbody>
     </table></div>
     <div id="tasksEmpty" class="empty" hidden>No open tasks from the agents.</div>
+  </section>
+
+  <section class="card section" data-views="messenger">
+    <details id="teamCard">
+      <summary>Team members <span id="teamCount" class="muted"></span></summary>
+      <p class="muted" style="margin:0 0 10px">Tick your Qwipo colleagues. The AI then sees them as <b>[team]</b>: a partner's question a colleague already answered isn't put on you, and if a colleague replies where you owe a reply, your task notes it.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Qwipo</th><th>Person</th><th>Groups</th><th>Last message</th></tr></thead>
+        <tbody id="people"></tbody>
+      </table></div>
+      <div id="peopleEmpty" class="empty" hidden>No one has posted in your watched groups yet.</div>
+      <form class="add-form" id="teamAdd" style="margin-top:12px">
+        <input type="text" id="teamPhone" inputmode="tel" placeholder="Phone with country code, e.g. 919876543210" aria-label="Phone number">
+        <input type="text" id="teamName" placeholder="Name" aria-label="Name" style="width:180px">
+        <button type="submit" class="btn">Add colleague</button>
+        <span class="muted" id="teamMsg"></span>
+      </form>
+    </details>
   </section>
 
   <section class="card section" id="ignoredCard" data-views="messenger" hidden>
@@ -290,7 +315,7 @@ function renderPipeline(s) {
   pill($('messengerPill'), live ? 'ok' : 'warn', live ? `Live · ${live} source${live > 1 ? 's' : ''}` : 'No live source');
 }
 
-const HOT = new Set(['to-investigate', 'needs-reply', 'new-comment']);
+const HOT = new Set(['to-investigate', 'needs-reply', 'new-comment', 'draft-ready', 'team-replied']);
 // The title already says the work item type and chat.
 const HIDE = (l) => ['bug', 'task', 'story', 'issue', 'feature', 'epic', 'whatsapp', 'assigned'].includes(l) || l.startsWith('wa-') || l.startsWith('ado-');
 
@@ -303,7 +328,7 @@ function renderTasks(all) {
   $('tasksEmpty').hidden = tasks.length > 0;
   $('tasksEmpty').textContent = VIEW === 'investigator' ? 'No bugs waiting for an investigation.' : 'No open tasks from the agents.';
   $('tasks').replaceChildren(...tasks.flatMap((t) => [el('tr', {},
-    el('td', {}, t.link ? el('a', { href: t.link, target: '_blank', rel: 'noopener', textContent: t.title }) : t.title, el('div', { className: 'muted', textContent: `#${t.id} · P${t.priority}${t.status && t.status !== 'todo' ? ` · ${t.status}` : ''}` }), t.investigation ? investigationPill(t.investigation) : null, t.bugId ? bugNotes(t) : null),
+    el('td', {}, t.link ? el('a', { href: t.link, target: '_blank', rel: 'noopener', textContent: t.title }) : t.title, el('div', { className: 'muted', textContent: `#${t.id} · P${t.priority}${t.status && t.status !== 'todo' ? ` · ${t.status}` : ''}` }), t.investigation ? investigationPill(t.investigation) : null, t.bugId ? bugNotes(t) : null, t.draft ? draftBox(t) : null),
     el('td', {}, el('span', { className: `pill ${t.source === 'whatsapp' ? 'ok' : 'info'}`, textContent: t.source === 'whatsapp' ? 'WhatsApp' : 'Azure DevOps' })),
     el('td', {}, el('div', { className: 'tags' }, ...t.labels.filter((l) => !HIDE(l)).sort((a, b) => HOT.has(b) - HOT.has(a)).map((l) => el('span', { className: `tag${HOT.has(l) ? ' hot' : ''}`, textContent: l })))),
     el('td', { className: 'when', textContent: ago(t.createdAt) }),
@@ -395,6 +420,31 @@ function noteForm(t) {
 function openNoteForm(t) {
   noteFormFor = t.id;
   render(last, true);
+}
+
+// ── Drafted WhatsApp replies (never sent — you send them) ───────────────
+let draftEditing = null; // chat whose draft is being edited; pauses task re-rendering
+
+function draftBox(t) {
+  const d = t.draft;
+  const box = el('textarea', { value: d.text });
+  box.onfocus = () => (draftEditing = t.chatJid);
+  box.onblur = () => { draftEditing = null; if (box.value !== d.text) postJson('/api/whatsapp/drafts/edit', { chatJid: t.chatJid, text: box.value }).catch(() => {}); };
+  const msg = el('span', { className: 'muted' });
+  const copy = el('button', { type: 'button', className: 'btn', textContent: 'Copy' });
+  copy.onclick = async () => { await navigator.clipboard.writeText(box.value); msg.textContent = 'Copied — paste it in WhatsApp.'; };
+  const open = t.phone ? el('a', { className: 'btn primary', href: `whatsapp://send?phone=${t.phone}&text=${encodeURIComponent(box.value)}`, textContent: 'Open in WhatsApp' }) : null;
+  if (open) open.onmouseenter = () => (open.href = `whatsapp://send?phone=${t.phone}&text=${encodeURIComponent(box.value)}`);
+  return el('div', { className: 'draft' },
+    el('span', { className: 'label', textContent: 'Drafted reply — not sent' }),
+    box,
+    d.note ? el('span', { className: 'note', textContent: `Check before sending: ${d.note}` }) : null,
+    el('div', { className: 'toolbar' },
+      open,
+      copy,
+      actionButton('Regenerate', async () => { msg.textContent = 'Drafting…'; await postJson('/api/whatsapp/drafts/regenerate', { chatJid: t.chatJid }); msg.textContent = ''; await refresh(true); }),
+      actionButton('Discard draft', async () => { await postJson('/api/whatsapp/drafts/discard', { chatJid: t.chatJid }); await refresh(true); }),
+      msg));
 }
 
 // ── Ignored bugs ────────────────────────────────────────────────────────
@@ -651,6 +701,60 @@ if (has('addItem')) {
   };
 }
 
+// ── What each watched group is for (given to the AI step) ──────────────
+let purposesLoaded = '';
+async function renderPurposes() {
+  if (!has('purposes')) return;
+  const d = await (await fetch('/api/whatsapp/chats', { cache: 'no-store' })).json();
+  const watched = d.chats.filter((c) => c.watched && c.isGroup);
+  const key = watched.map((c) => c.jid).join(',');
+  if (key === purposesLoaded) return; // don't wipe text being typed
+  purposesLoaded = key;
+  $('purposes').replaceChildren(...watched.map((c) => {
+    const box = el('textarea', { value: c.purpose, placeholder: 'Why this group exists and what you are expected to do there, e.g. "HUL × Qwipo integration: HUL devs report ONDC payload issues for us to fix."' });
+    const msg = el('span', { className: 'muted' });
+    const save = el('button', { type: 'button', className: 'btn', textContent: 'Save' });
+    save.onclick = async () => {
+      try { await postJson('/api/settings/whatsapp-purpose', { jid: c.jid, text: box.value }); msg.textContent = 'Saved — the AI uses it from the next message.'; }
+      catch (e) { msg.textContent = e.message; }
+    };
+    return el('div', { className: 'purpose' }, el('strong', { textContent: c.name }), el('span', { className: 'muted', style: 'font-size:12px', textContent: 'What this group is for — the AI reads it with every decision here' }), box, el('div', { className: 'toolbar' }, save, msg));
+  }));
+}
+if (has('purposes')) { renderPurposes(); setInterval(renderPurposes, 15000); }
+
+// ── Team members (tagged [team] for the AI) ─────────────────────────────
+async function renderPeople() {
+  if (!has('people')) return;
+  const { people } = await (await fetch('/api/whatsapp/people', { cache: 'no-store' })).json();
+  $('teamCount').textContent = `(${people.filter((p) => p.team).length} tagged of ${people.length})`;
+  $('peopleEmpty').hidden = people.length > 0;
+  $('people').replaceChildren(...people.map((p) => {
+    const box = el('input', { type: 'checkbox', checked: p.team, title: 'Qwipo colleague' });
+    box.onchange = async () => {
+      box.disabled = true;
+      try { await postJson('/api/settings/whatsapp-team', { id: p.teamKey ?? p.phone ?? p.id, name: p.name ?? '', member: box.checked }); await renderPeople(); }
+      catch (e) { box.checked = !box.checked; box.disabled = false; $('teamMsg').textContent = e.message; }
+    };
+    return el('tr', {},
+      el('td', {}, box),
+      el('td', {}, el('div', { textContent: p.name ?? 'Unknown' }), el('div', { className: 'muted', style: 'font-size:12px', textContent: p.phone ? `+${p.phone}` : `id ${p.id}` })),
+      el('td', { className: 'muted', style: 'font-size:12px', textContent: p.chats.join(', ') || '—' }),
+      el('td', { className: 'muted', style: 'font-size:12px', textContent: p.lastText ? `${p.lastText}${p.lastAt ? ` · ${ago(p.lastAt)}` : ''}` : '—' }));
+  }));
+}
+if (has('people')) {
+  $('teamCard').addEventListener('toggle', () => { if ($('teamCard').open) renderPeople(); });
+  $('teamAdd').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await postJson('/api/settings/whatsapp-team', { id: $('teamPhone').value, name: $('teamName').value, member: true });
+      $('teamPhone').value = ''; $('teamName').value = ''; $('teamMsg').textContent = 'Added.';
+      await renderPeople();
+    } catch (err) { $('teamMsg').textContent = err.message; }
+  };
+}
+
 // ── WhatsApp chat picker ────────────────────────────────────────────────
 let picker = null; // { chats, selected: Set, missing } while open; pauses nothing else
 
@@ -701,6 +805,8 @@ if (has('pickChats')) {
     try {
       await postJson('/api/settings/whatsapp', { watch: [...picker.selected], keywords: $('keywords').value.split(',') });
       closePicker();
+      purposesLoaded = '';
+      renderPurposes();
       await refresh();
     } catch (e) {
       $('pickerMsg').textContent = e.message;
@@ -771,7 +877,7 @@ function render(d, force = false) {
   last = d;
   renderSources(d.sources);
   // Don't wipe a note or review being typed; the next refresh after closing catches up.
-  const typing = noteFormFor !== null || (feedbackBox && reportOpen && (feedbackBox.value || document.activeElement === feedbackBox));
+  const typing = noteFormFor !== null || draftEditing !== null || (feedbackBox && reportOpen && (feedbackBox.value || document.activeElement === feedbackBox));
   const typingDev = devFeedback && devOpen && (devFeedback.value || document.activeElement === devFeedback);
   if (force || !(typing || typingDev)) {
     renderTasks(d.tasks);
