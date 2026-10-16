@@ -38,10 +38,10 @@ export class AdoClient {
     return value;
   }
 
-  async call<T>(url: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  async call<T>(url: string, init: { method?: string; body?: unknown; contentType?: string } = {}): Promise<T> {
     const res = await fetch(url, {
       method: init.method ?? 'GET',
-      headers: { Authorization: `Bearer ${this.bearer()}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${this.bearer()}`, 'Content-Type': init.contentType ?? 'application/json' },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
       redirect: 'manual',
     });
@@ -67,6 +67,29 @@ export class AdoClient {
       `${this.cfg.org}/_apis/wit/workitems/${id}?$expand=relations&${API}`,
     );
     return { id: r.id, fields: r.fields, relations: r.relations ?? [] };
+  }
+
+  /**
+   * Applies JSON-patch operations to a work item. `validateOnly` checks the
+   * change against the project's rules without saving it.
+   */
+  updateWorkItem(id: number, ops: Array<{ op: string; path: string; value?: unknown }>, validateOnly = false) {
+    return this.call<{ id: number; rev: number; fields: Record<string, any> }>(
+      `${this.cfg.org}/_apis/wit/workitems/${id}?${API}${validateOnly ? '&validateOnly=true' : ''}`,
+      { method: 'PATCH', body: ops, contentType: 'application/json-patch+json' },
+    );
+  }
+
+  /** Adds a comment (plain text; newlines kept). */
+  addComment(id: number, text: string) {
+    const html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .split('\n')
+      .map((l) => `<div>${l || '<br>'}</div>`)
+      .join('');
+    return this.call<{ id: number }>(`${this.projectUrl}/_apis/wit/workItems/${id}/comments?api-version=7.0-preview.3`, { method: 'POST', body: { text: html } });
   }
 
   /** Comments with author and date, oldest first (first 200). */

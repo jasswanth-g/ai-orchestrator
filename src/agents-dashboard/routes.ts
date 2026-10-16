@@ -1,6 +1,9 @@
+import type { AdoClient } from '../ado/client.ts';
+import { doneLabel, planTransition } from '../ado/transitions.ts';
 import type { BugNotes, NoteType, Settings } from '../agents-settings.ts';
 import type { ActivityLog } from '../events/activity.ts';
 import type { Receiver } from '../events/receiver.ts';
+import type { ReportsDb } from '../store/reports.ts';
 import type { Store } from '../store/store.ts';
 import type { Item } from '../types.ts';
 import type { Investigator } from '../investigator/service.ts';
@@ -25,6 +28,8 @@ const AGENT_SOURCES = ['azure-devops', 'whatsapp'];
 /** One page, three views: the client shows the sections for its path. */
 const PAGES = new Set(['/', '/messenger', '/investigator']);
 const TRACKED_DAYS = 90;
+/** Work item type labels the intake adds (toLabel of System.WorkItemType). */
+const TYPE_LABELS = ['bug', 'task', 'story', 'issue', 'feature', 'epic'];
 
 /** Bug id from a task's ado-<id> label. */
 const bugIdOf = (t: Pick<Item, 'labels'>) => {
@@ -50,6 +55,9 @@ export function agentsDashboard(o: {
   bugNotes: BugNotes;
   /** Unset when ADO is off or failed to start. */
   investigator?: Investigator;
+  /** For Done → Azure DevOps state changes; unset when ADO is off. */
+  ado?: AdoClient;
+  reports?: ReportsDb;
   /** Bridge store dir, for the chat list; unset when the bridge is off. */
   waStoreDir?: string;
   todoDashboardUrl: string;
@@ -94,6 +102,8 @@ export function agentsDashboard(o: {
           createdAt: t.createdAt,
           bugId,
           notes: bugId ? o.bugNotes.for(bugId) : undefined,
+          // What Done does in Azure DevOps (undefined = nothing is sent).
+          donePlan: bugId && o.ado ? doneLabel(TYPE_LABELS.find((l) => t.labels.includes(l)), o.reports?.get(bugId)?.verdict) : undefined,
           investigation: bugId ? investigations.get(bugId) : undefined,
         };
       })
@@ -126,6 +136,31 @@ export function agentsDashboard(o: {
     return { chats: list, missing, keywords };
   }
 
+  /**
+   * Done on an Azure DevOps task moves the work item per transitions.ts and
+   * adds its comment. Returns what happened, or undefined when nothing is sent.
+   * Throws (task stays open) if ADO refuses the change.
+   */
+  async function doneInAdo(task: Item): Promise<string | undefined> {
+    const bugId = bugIdOf(task);
+    if (!bugId || !o.ado) return undefined;
+    const item = await o.ado.workItem(bugId);
+    const type = item.fields['System.WorkItemType'];
+    const plan = planTransition('done', { type, fields: item.fields }, o.reports?.get(bugId));
+    if (!plan) return undefined;
+    const target = plan.ops.find((p) => p.path === '/fields/System.State')?.value;
+    if (target === item.fields['System.State'] && !plan.comment) return `already ${target}`;
+    try {
+      await o.ado.updateWorkItem(bugId, plan.ops);
+      if (plan.comment) await o.ado.addComment(bugId, plan.comment);
+    } catch (err) {
+      const why = `Azure DevOps refused ${type} ${bugId} → ${plan.label}: ${err instanceof Error ? err.message.replace(/^ADO \S+ \S+ → /, '') : err}`;
+      o.activity.add({ source: 'dashboard', kind: 'done', subject: task.title, action: 'error', reason: why.slice(0, 300), taskId: task.id });
+      throw new HttpError(502, why);
+    }
+    return `${type} ${bugId} → ${plan.label}${plan.comment ? ' + comment' : ''}`;
+  }
+
   /** Writes, by path. Each returns the JSON body to send. */
   async function write(path: string, body: Record<string, unknown>): Promise<unknown> {
     let m: RegExpExecArray | null;
@@ -143,7 +178,11 @@ export function agentsDashboard(o: {
       const action = m[2]!;
       const task = await agentTask(id);
       const link = task.link?.startsWith('http') ? task.link : undefined;
-      if (action === 'done') await o.store.close(id);
+      let adoResult: string | undefined;
+      if (action === 'done') {
+        adoResult = await doneInAdo(task);
+        await o.store.close(id);
+      }
       if (action === 'replied') await o.store.update(id, { labels: task.labels.filter((l) => l !== 'needs-reply') });
       if (action === 'read') await o.store.update(id, { labels: task.labels.filter((l) => l !== 'new-comment') });
       if (action === 'ignore') {
@@ -153,8 +192,8 @@ export function agentsDashboard(o: {
         await o.store.comment(id, 'Ignored from the agents dashboard: not working on this bug.');
         await o.store.close(id);
       }
-      o.activity.add({ source: 'dashboard', kind: action, subject: task.title, action: action === 'done' || action === 'ignore' ? 'done' : 'annotated', reason: `marked ${action} by you`, taskId: id, link });
-      return { ok: true };
+      o.activity.add({ source: 'dashboard', kind: action, subject: task.title, action: action === 'done' || action === 'ignore' ? 'done' : 'annotated', reason: adoResult ? `marked done by you · Azure DevOps: ${adoResult}` : `marked ${action} by you`, taskId: id, link });
+      return { ok: true, ado: adoResult };
     }
 
     if ((m = /^\/api\/bugs\/(\d+)\/restore$/.exec(path))) {

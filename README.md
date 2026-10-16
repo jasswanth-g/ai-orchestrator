@@ -149,6 +149,21 @@ another. Mentions alone don't create tasks.
 | Comment / state / assignment change on a tracked item | comment attached; comments add `new-comment`; a reopened item reopens a done task |
 | An item I ignored on the dashboard, my own changes, closed items, everything else | ignored |
 
+**Done → Azure DevOps** (`src/ado/transitions.ts`). Done on a dashboard task moves
+the work item; the confirm step says exactly what (e.g. "Confirm → Closed in
+Azure DevOps"). If ADO refuses, the task stays open and the reason is in the feed.
+Empty required fields are filled with 1. Ignore never touches ADO.
+
+| Type | Done | Developer starts (Developer agent, later) |
+|---|---|---|
+| Bug | Resolved (Fixed), Completed Work, "ready for retest" comment with the report's checks — QA closes it | Active |
+| Bug whose report says works-as-designed / cannot-reproduce / requirement-gap | handed back: Active, assigned to the reporter, the finding as a comment | — |
+| Task | Closed, Completed Work kept, Remaining Work cleared (ADO requires it empty) | Active |
+| Story | Ready for QA | In Development |
+| Issue | Resolved | In Development |
+
+Generating or reviewing a report changes nothing in ADO.
+
 Only **Bugs** get `to-investigate` and the Investigate button. Auth to ADO uses
 the `az login` session. `bun run ado-hooks list | create <url> | delete` manages
 the service hooks (updated + commented, all work item types).

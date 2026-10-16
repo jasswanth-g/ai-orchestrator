@@ -136,3 +136,50 @@ test('the shared shell assets are served', async () => {
   const js = await handle(new Request('http://127.0.0.1:4320/assets/shell.js'));
   expect(js?.headers.get('content-type')).toContain('javascript');
 });
+
+describe('Done → Azure DevOps', () => {
+  const t = (n: string) => `${process.env.TMPDIR ?? '/tmp'}/${n}-${Date.now()}-${Math.random()}`;
+  const make = async (fail = false) => {
+    const { agentsDashboard } = await import('../src/agents-dashboard/routes.ts');
+    const { Settings, BugNotes } = await import('../src/agents-settings.ts');
+    const store = new InMemoryStore();
+    const calls: any[] = [];
+    const ado: any = {
+      async workItem(id: number) {
+        return { id, fields: { 'System.WorkItemType': 'Task', 'System.State': 'Active', 'Microsoft.VSTS.Scheduling.RemainingWork': 2 }, relations: [] };
+      },
+      async updateWorkItem(id: number, ops: any[]) {
+        if (fail) throw new Error('ADO PATCH x → 400 TF401320: Rule Error for field Remaining Work');
+        calls.push({ id, ops });
+        return { id, rev: 2, fields: {} };
+      },
+      async addComment(id: number, text: string) {
+        calls.push({ id, comment: text });
+      },
+    };
+    const activity = new ActivityLog(t('a'));
+    const handle = agentsDashboard({ port: 4320, store, receivers: [], activity, adoOn: true, settings: new Settings(t('s'), { watch: [], keywords: [] }), bugNotes: new BugNotes(t('n')), ado, todoDashboardUrl: '' });
+    const task = await store.create('work', { title: 'Task 20743: Planning', source: 'azure-devops', labels: ['ado-20743', 'task', 'assigned'] });
+    const post = (path: string) => handle(new Request(`http://127.0.0.1:4320${path}`, { method: 'POST', headers: { host: '127.0.0.1:4320', 'content-type': 'application/json' }, body: '{}' }));
+    return { store, calls, handle, task, post, activity };
+  };
+
+  test('closes the Task in ADO, then the local task, and says so', async () => {
+    const { store, calls, task, post, handle } = await make();
+    const overview = (await (await handle(new Request('http://127.0.0.1:4320/api/overview', { headers: { host: '127.0.0.1:4320' } })))!.json()) as any;
+    expect(overview.tasks[0].donePlan).toBe('Closed');
+    const res = await post(`/api/tasks/${task.id}/done`);
+    expect(await res!.json()).toEqual({ ok: true, ado: 'Task 20743 → Closed' });
+    expect(calls[0].ops.find((o: any) => o.path === '/fields/System.State').value).toBe('Closed');
+    expect(await store.list('work')).toEqual([]);
+  });
+
+  test('if ADO refuses, the task stays open and the reason is in the feed', async () => {
+    const { store, task, post, activity } = await make(true);
+    const res = await post(`/api/tasks/${task.id}/done`);
+    expect(res?.status).toBe(502);
+    expect(await res!.text()).toContain('Remaining Work');
+    expect(await store.list('work')).toHaveLength(1);
+    expect(activity.recent(1)[0]).toMatchObject({ action: 'error' });
+  });
+});

@@ -302,19 +302,20 @@ async function act(id, action) {
   await refresh();
 }
 
+/** needsConfirm: true for a plain "Confirm" step, or the confirm text itself. */
 function actionButton(label, run, needsConfirm = false) {
   const b = el('button', { type: 'button', textContent: label });
   let armed = false;
   b.onclick = async () => {
     if (needsConfirm && !armed) {
       armed = true;
-      b.textContent = 'Confirm';
+      b.textContent = typeof needsConfirm === 'string' ? needsConfirm : 'Confirm';
       b.className = 'confirm';
-      setTimeout(() => { armed = false; b.textContent = label; b.className = ''; }, 3000);
+      setTimeout(() => { armed = false; b.textContent = label; b.className = ''; }, 4000);
       return;
     }
     b.disabled = true;
-    try { await run(); b.disabled = false; } catch (e) { b.disabled = false; b.textContent = 'Failed'; b.title = e.message; }
+    try { await run(); b.disabled = false; } catch (e) { b.disabled = false; b.textContent = 'Failed — hover for why'; b.title = e.message; }
   };
   return b;
 }
@@ -329,7 +330,7 @@ function taskActions(t) {
     t.labels.includes('needs-reply') ? actionButton('Replied', () => act(t.id, 'replied')) : null,
     t.labels.includes('new-comment') ? actionButton('Mark read', () => act(t.id, 'read')) : null,
     t.bugId ? actionButton('Ignore', () => act(t.id, 'ignore'), true) : null,
-    actionButton('Done', () => act(t.id, 'done'), true),
+    actionButton('Done', () => act(t.id, 'done'), t.donePlan ? `Confirm → ${t.donePlan} in Azure DevOps` : true),
   );
 }
 

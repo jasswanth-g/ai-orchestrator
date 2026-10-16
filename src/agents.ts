@@ -63,6 +63,10 @@ if (adoOn) {
   }
 } else log('ado: off (ADO=off)');
 
+// One ADO client for the Investigator and the dashboard's Done → ADO state changes.
+const adoClient = adoOn && !adoError ? new AdoClient(adoConfig()) : undefined;
+const reportsDb = new ReportsDb(reportsPath());
+
 // Investigator: one iTerm + Claude Code session per bug, started from the dashboard.
 const investigator =
   adoOn && !adoError
@@ -71,11 +75,11 @@ const investigator =
         reposRoot: resolvePath(process.env.INVESTIGATOR_REPOS ?? '~/Documents/GitHub'),
         repoRemote: process.env.INVESTIGATOR_REPO_REMOTE ?? 'dev.azure.com/xavica',
         store,
-        reports: new ReportsDb(reportsPath()),
+        reports: reportsDb,
         reportsPath: reportsPath(),
         bugNotes,
         activity,
-        ado: new AdoClient(adoConfig()),
+        ado: adoClient!,
       })
     : undefined;
 
@@ -124,6 +128,8 @@ const dashboard = agentsDashboard({
   settings,
   bugNotes,
   investigator,
+  ado: adoClient,
+  reports: reportsDb,
   waStoreDir: bridgeOn ? waStoreDir : undefined,
   todoDashboardUrl: `http://127.0.0.1:${process.env.TODO_BRAIN_DASHBOARD_PORT ?? 4319}`,
 });
