@@ -16,7 +16,7 @@ export const VERDICTS = ['bug', 'works-as-designed', 'requirement-gap', 'cannot-
 export type Verdict = (typeof VERDICTS)[number];
 export const CONFIDENCE = ['high', 'medium', 'low'] as const;
 export const COVERED = ['yes', 'no', 'unclear'] as const;
-export const DECISIONS = ['approve', 'reject', 'changes'] as const;
+export const DECISIONS = ['approve', 'reject', 'changes', 'discard'] as const;
 export type Decision = (typeof DECISIONS)[number];
 
 /** What the Investigator writes. Kept deliberately short — limits are enforced by save_report. */
@@ -48,6 +48,31 @@ export interface ReportReview {
   decision: Decision;
   feedback?: string;
   createdAt: string;
+}
+
+/** What the Developer agent reports after implementing an approved fix. Kept short, like reports. */
+export interface DevResultBody {
+  summary: string;
+  changes: Array<{ repo: string; files: string[] }>;
+  tests: Array<{ command: string; result: 'passed' | 'failed' | 'not-run'; note?: string }>;
+  notes: string[];
+}
+
+export interface DevResult extends DevResultBody {
+  id: number;
+  bugId: number;
+  sessionId?: string;
+  version: number;
+  createdAt: string;
+}
+
+interface DevRow {
+  id: number;
+  bug_id: number;
+  session_id: string | null;
+  version: number;
+  body: string;
+  created_at: string;
 }
 
 interface ReportRow {
@@ -83,6 +108,23 @@ export class ReportsDb {
       body TEXT NOT NULL,
       created_at TEXT NOT NULL,
       UNIQUE (bug_id, version)
+    )`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS dev_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bug_id INTEGER NOT NULL,
+      session_id TEXT,
+      version INTEGER NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (bug_id, version)
+    )`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS dev_reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bug_id INTEGER NOT NULL,
+      version INTEGER NOT NULL,
+      decision TEXT NOT NULL,
+      feedback TEXT,
+      created_at TEXT NOT NULL
     )`);
     this.db.run(`CREATE TABLE IF NOT EXISTS report_reviews (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -155,6 +197,46 @@ export class ReportsDb {
       .query<ReviewRow, { bug: number }>('SELECT * FROM report_reviews WHERE bug_id = $bug ORDER BY id')
       .all({ bug: bugId })
       .map((r) => this.toReview(r));
+  }
+
+  // ── Developer results ────────────────────────────────────────────────
+
+  saveDevResult(bugId: number, body: DevResultBody, sessionId?: string): DevResult {
+    const tx = this.db.transaction(() => {
+      const last = this.db.query<{ v: number | null }, { bug: number }>('SELECT MAX(version) AS v FROM dev_results WHERE bug_id = $bug').get({ bug: bugId });
+      return this.db
+        .query<DevRow, Record<string, string | number | null>>(
+          'INSERT INTO dev_results (bug_id, session_id, version, body, created_at) VALUES ($bug, $s, $v, $body, $at) RETURNING *',
+        )
+        .get({ bug: bugId, s: sessionId ?? null, v: (last?.v ?? 0) + 1, body: JSON.stringify(body), at: this.now().toISOString() })!;
+    });
+    return this.toDev(tx());
+  }
+
+  devResult(bugId: number): DevResult | undefined {
+    const row = this.db.query<DevRow, { bug: number }>('SELECT * FROM dev_results WHERE bug_id = $bug ORDER BY version DESC LIMIT 1').get({ bug: bugId });
+    return row ? this.toDev(row) : undefined;
+  }
+
+  devReview(bugId: number, decision: 'approve' | 'changes' | 'discard', feedback?: string): ReportReview {
+    const version = this.devResult(bugId)?.version ?? 0;
+    const row = this.db
+      .query<ReviewRow, Record<string, string | number | null>>(
+        'INSERT INTO dev_reviews (bug_id, version, decision, feedback, created_at) VALUES ($bug, $v, $d, $f, $at) RETURNING *',
+      )
+      .get({ bug: bugId, v: version, d: decision, f: feedback ?? null, at: this.now().toISOString() })!;
+    return this.toReview(row);
+  }
+
+  devReviews(bugId: number): ReportReview[] {
+    return this.db
+      .query<ReviewRow, { bug: number }>('SELECT * FROM dev_reviews WHERE bug_id = $bug ORDER BY id')
+      .all({ bug: bugId })
+      .map((r) => this.toReview(r));
+  }
+
+  private toDev(r: DevRow): DevResult {
+    return { ...(JSON.parse(r.body) as DevResultBody), id: r.id, bugId: r.bug_id, sessionId: r.session_id ?? undefined, version: r.version, createdAt: r.created_at };
   }
 
   close(): void {

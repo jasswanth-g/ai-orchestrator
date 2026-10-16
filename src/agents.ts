@@ -2,6 +2,7 @@
 import { dirname, join } from 'node:path';
 import { AdoClient, adoConfig } from './ado/client.ts';
 import { adoHookSecret, adoReceiver } from './ado/receiver.ts';
+import { Developer } from './developer/service.ts';
 import { Investigator } from './investigator/service.ts';
 import { agentsDashboard } from './agents-dashboard/routes.ts';
 import { BugNotes, Settings } from './agents-settings.ts';
@@ -83,6 +84,23 @@ const investigator =
       })
     : undefined;
 
+// Developer: implements an approved report in git worktrees, in its own iTerm session.
+const developer = investigator
+  ? new Developer({
+      stateDir,
+      reposRoot: resolvePath(process.env.INVESTIGATOR_REPOS ?? '~/Documents/GitHub'),
+      repoRemote: process.env.INVESTIGATOR_REPO_REMOTE ?? 'dev.azure.com/xavica',
+      store,
+      reports: reportsDb,
+      reportsPath: reportsPath(),
+      investigations: investigator.investigations,
+      bugNotes,
+      activity,
+      ado: adoClient,
+      knowledgeDir: dirname(investigator.knowledgeFile),
+    })
+  : undefined;
+
 const bridgeOn = process.env.WHATSAPP_BRIDGE !== 'off';
 const waStoreDir = resolvePath(process.env.WHATSAPP_STORE_DIR ?? '~/Documents/GitHub/whatsapp-mcp/whatsapp-bridge/store');
 // Shared with the bridge and the WhatsApp MCP server via <store>/bridge-secret.
@@ -128,6 +146,7 @@ const dashboard = agentsDashboard({
   settings,
   bugNotes,
   investigator,
+  developer,
   ado: adoClient,
   reports: reportsDb,
   waStoreDir: bridgeOn ? waStoreDir : undefined,

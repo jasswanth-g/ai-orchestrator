@@ -24,7 +24,7 @@
     { path: '/', key: 'overview', label: 'Overview' },
     { path: '/messenger', key: 'messenger', label: 'Messenger' },
     { path: '/investigator', key: 'investigator', label: 'Investigator' },
-    { path: null, key: 'developer', label: 'Developer', soon: true },
+    { path: '/developer', key: 'developer', label: 'Developer' },
   ];
   const OTHER = { '/whatsapp': { key: 'whatsapp', label: 'WhatsApp' }, '/activity': { key: 'activity', label: 'Activity' } };
   const current = PAGES.find((p) => p.path === location.pathname) ?? OTHER[location.pathname] ?? PAGES[0];
@@ -108,6 +108,10 @@
       const invs = d.investigations ?? [];
       const toReview = invs.filter((i) => i.status === 'report-ready').length;
       const running = invs.filter((i) => i.status === 'running' || i.status === 'changes-requested').length;
+      const devs = d.developments ?? [];
+      const devReview = devs.filter((x) => x.status === 'ready-for-review').length;
+      const devRunning = devs.filter((x) => x.status === 'running' || x.status === 'changes-requested').length;
+      badge('developer', devReview ? `${devReview} to review` : devRunning ? `${devRunning} running` : '', devReview ? 'hot' : devRunning ? 'warn' : '');
       badge('investigator', toReview ? `${toReview} to review` : running ? `${running} running` : '', toReview ? 'hot' : running ? 'warn' : '');
       const attention = (d.tasks ?? []).filter((t) => t.labels.includes('needs-reply') || t.labels.includes('new-comment')).length;
       badge('messenger', attention ? String(attention) : '', 'hot');

@@ -33,7 +33,7 @@ export interface Terminal {
 }
 
 const PROMPT_FILE = new URL('../../prompts/investigator.md', import.meta.url).pathname;
-const TODO_BRAIN_ENTRY = new URL('../index.ts', import.meta.url).pathname;
+export const TODO_BRAIN_ENTRY = new URL('../index.ts', import.meta.url).pathname;
 const REPORT_TOOL_NAMES = ['save_report', 'get_report', 'list_reports'];
 /**
  * The session's MCP server is todo-brain under another name and with only the
@@ -52,9 +52,9 @@ const STATUS_LABELS: Record<InvestigationStatus, string> = {
 const FLOW_LABELS = ['to-investigate', ...Object.values(STATUS_LABELS)];
 
 /** Absolute path in permission-rule form: `//abs/path`. */
-const rulePath = (p: string) => `/${p}`;
+export const rulePath = (p: string) => `/${p}`;
 /** Single-quoted for zsh. */
-const sh = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+export const sh = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 export class Investigator {
   readonly investigations: Investigations;

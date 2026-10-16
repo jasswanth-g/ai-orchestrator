@@ -66,6 +66,11 @@
   .add-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 14px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
   .add-form input[type=text] { width: 220px; }
   .add-form .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
+  pre.diff { margin: 0; padding: 10px 12px; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--card); border: 1px solid var(--line); border-radius: 9px; max-height: 520px; overflow-y: auto; }
+  pre.diff .add { background: var(--ok-bg); color: var(--ok); display: block; }
+  pre.diff .del { background: var(--bad-bg); color: var(--bad); display: block; }
+  pre.diff .hunk { color: var(--info); display: block; }
+  pre.diff .file { font-weight: 600; display: block; margin-top: 8px; }
   .alert { display: flex; gap: 8px; align-items: baseline; padding: 10px 14px; border-radius: 9px; margin-bottom: 12px; font-size: 13px; font-weight: 500; }
 </style>
 </head>
@@ -86,7 +91,7 @@
   <div class="pipeline" data-views="overview">
     <div class="stage link" data-go="/messenger"><div class="row"><b>Messenger</b><span id="messengerPill" class="pill dot idle">—</span></div><span class="muted">Turns your Azure DevOps work items and WhatsApp messages into tasks</span></div>
     <div class="stage link" data-go="/investigator"><div class="row"><b>Investigator</b><span id="invPill" class="pill dot idle">—</span></div><span class="muted">Root cause + fix report per bug, in its own iTerm window</span></div>
-    <div class="stage"><div class="row"><b>Developer</b><span class="pill idle">Not built</span></div><span class="muted">Implements approved reports locally</span></div>
+    <div class="stage link" data-go="/developer"><div class="row"><b>Developer</b><span id="devPill" class="pill dot idle">—</span></div><span class="muted">Implements approved reports in a worktree — nothing committed</span></div>
   </div>
 
   <!-- Shown only when something needs fixing. -->
@@ -120,6 +125,24 @@
       <tbody id="investigations"></tbody>
     </table></div>
     <div id="invEmpty" class="empty" hidden>No investigations yet. Start one from a bug below.</div>
+  </section>
+
+  <section class="card section" data-views="developer">
+    <div class="row"><h2 style="margin:0">Development <span id="devCount" class="muted"></span></h2></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Bug</th><th>Status</th><th>Worktrees</th><th>Result</th><th>Started</th><th></th></tr></thead>
+      <tbody id="developments"></tbody>
+    </table></div>
+    <div id="devEmpty" class="empty" hidden>Nothing in development. Approve an Investigator report, then start the Developer below.</div>
+  </section>
+
+  <section class="card section" data-views="developer">
+    <div class="row"><h2 style="margin:0">Approved reports ready to develop</h2></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Bug</th><th>Report</th><th>Approved</th><th></th></tr></thead>
+      <tbody id="readyToDevelop"></tbody>
+    </table></div>
+    <div id="readyEmpty" class="empty" hidden>No approved reports waiting.</div>
   </section>
 
   <section class="card section" data-views="overview messenger investigator">
@@ -179,8 +202,8 @@
 const $ = (id) => document.getElementById(id);
 
 // ── Pages: one HTML, sections tagged with data-views ────────────────────
-const VIEW = { '/messenger': 'messenger', '/investigator': 'investigator', '/activity': 'activity' }[location.pathname] ?? 'overview';
-const TITLES = { overview: 'Agents', messenger: 'Messenger agent', investigator: 'Investigator agent', activity: 'Activity' };
+const VIEW = { '/messenger': 'messenger', '/investigator': 'investigator', '/developer': 'developer', '/activity': 'activity' }[location.pathname] ?? 'overview';
+const TITLES = { overview: 'Agents', messenger: 'Messenger agent', investigator: 'Investigator agent', developer: 'Developer agent', activity: 'Activity' };
 document.querySelectorAll('[data-views]').forEach((n) => { if (!n.dataset.views.split(' ').includes(VIEW)) n.remove(); });
 document.querySelectorAll('[data-go]').forEach((n) => { n.onclick = () => (location.href = n.dataset.go); });
 document.getElementById('pageTitle').textContent = TITLES[VIEW];
@@ -189,6 +212,7 @@ document.getElementById('pageSub').textContent = {
   messenger: 'Turns your Azure DevOps work items and WhatsApp messages into tasks.',
   investigator: 'Root cause and fix reports per bug, each in its own iTerm session.',
   activity: 'Everything the agents and you did — search when you need it.',
+  developer: 'Implements approved fixes in a git worktree and runs the tests. Nothing is committed — you review and commit.',
 }[VIEW];
 document.title = `${TITLES[VIEW]} · Agents`;
 const has = (id) => !!document.getElementById(id);
@@ -254,6 +278,13 @@ function renderPipeline(s) {
   const ready = invs.filter((i) => i.status === 'report-ready').length;
   if (!last?.investigatorOn) pill($('invPill'), 'idle', 'Off — needs Azure DevOps');
   else pill($('invPill'), ready ? 'info' : running ? 'warn' : 'ok', ready ? `${ready} report${ready > 1 ? 's' : ''} to review` : running ? `${running} running` : 'Ready');
+  if (has('devPill')) {
+    const devs = last?.developments ?? [];
+    const review = devs.filter((x) => x.status === 'ready-for-review').length;
+    const running = devs.filter((x) => x.status === 'running' || x.status === 'changes-requested').length;
+    if (!last?.developerOn) pill($('devPill'), 'idle', 'Off — needs Azure DevOps');
+    else pill($('devPill'), review ? 'info' : running ? 'warn' : 'ok', review ? `${review} to review` : running ? `${running} running` : 'Ready');
+  }
   const live = [ado.enabled && !ado.error, wa.enabled && wa.link?.state === 'connected'].filter(Boolean).length;
   pill($('messengerPill'), live ? 'ok' : 'warn', live ? `Live · ${live} source${live > 1 ? 's' : ''}` : 'No live source');
 }
@@ -464,6 +495,9 @@ function reportRow(t) {
       el('strong', { textContent: decided ? `You ${inv.status} this report — you can still revise it:` : 'Your review' }),
       feedbackBox,
       el('div', { className: 'toolbar' },
+        inv.status === 'approved' && last.developerOn && !(last.developments ?? []).some((d) => d.bugId === t.bugId && d.status !== 'discarded')
+          ? actionButton('Start developer', () => startDeveloper(t.bugId), 'Confirm → start (Azure DevOps: Active / In Development)')
+          : null,
         actionButton('Request changes', review('changes')),
         decided ? null : actionButton('Approve', review('approve'), true),
         decided ? null : actionButton('Reject', review('reject'), true),
@@ -490,6 +524,107 @@ function renderInvestigations(items) {
         i.reportVersion ? actionButton(reportOpen === i.bugId ? 'Hide report' : 'Report', () => toggleReport(i.bugId)) : null)));
     return [row, reportOpen === i.bugId ? reportRow(t) : null].filter(Boolean);
   }));
+}
+
+// ── Developer ───────────────────────────────────────────────────────────
+const DEV = {
+  running: ['warn', 'Developing…'],
+  'ready-for-review': ['info', 'Ready for review'],
+  'changes-requested': ['warn', 'Revising…'],
+  approved: ['ok', 'Approved — uncommitted'],
+  discarded: ['idle', 'Discarded'],
+};
+let devOpen = null;
+const devData = {};
+let devFeedback = null;
+
+async function startDeveloper(bugId) {
+  const s = await postJson(`/api/bugs/${bugId}/develop`);
+  window.Shell?.setUpdated(`Developer started for bug ${bugId}${s.ado ? ` · ${s.ado}` : ''}`, true);
+  if (VIEW !== 'developer') location.href = '/developer';
+  else await refresh(true);
+}
+
+async function loadDev(bugId) {
+  devData[bugId] = await (await fetch(`/api/bugs/${bugId}/dev`, { cache: 'no-store' })).json();
+}
+
+function diffView(text) {
+  const pre = el('pre', { className: 'diff' });
+  if (!text.trim()) { pre.textContent = 'No changes yet.'; return pre; }
+  for (const line of text.split('\n')) {
+    const cls = line.startsWith('diff --git') ? 'file' : line.startsWith('@@') ? 'hunk' : line.startsWith('+') && !line.startsWith('+++') ? 'add' : line.startsWith('-') && !line.startsWith('---') ? 'del' : '';
+    pre.append(cls ? el('span', { className: cls, textContent: line }) : document.createTextNode(`${line}\n`));
+  }
+  return pre;
+}
+
+function devRow(d) {
+  const data = devData[d.bugId] ?? {};
+  const r = data.result;
+  devFeedback = el('textarea', { placeholder: 'What should change? It goes to the Developer in its terminal.' });
+  const msg = el('span', { className: 'muted' });
+  const review = (decision) => async () => {
+    try {
+      await postJson(`/api/bugs/${d.bugId}/dev-review`, { decision, feedback: devFeedback.value });
+      devFeedback.value = '';
+      await loadDev(d.bugId);
+      await refresh(true);
+    } catch (e) { msg.textContent = e.message; }
+  };
+  const done = d.status === 'approved' || d.status === 'discarded';
+  return el('tr', {}, el('td', { colSpan: 6 }, el('div', { className: 'report' },
+    r ? el('p', { className: 'lead', style: 'margin-top:0', textContent: r.summary }) : el('p', { className: 'muted', textContent: 'No result saved yet — the Developer is still working.' }),
+    r ? el('h3', { textContent: 'Checks' }) : null,
+    r ? el('ul', {}, ...(r.tests.length ? r.tests : [{ command: 'none run', result: 'not-run' }]).map((t) => el('li', {}, el('span', { className: `pill ${t.result === 'passed' ? 'ok' : t.result === 'failed' ? 'bad' : 'idle'}`, textContent: t.result }), document.createTextNode(` ${t.command}${t.note ? ` — ${t.note}` : ''}`)))) : null,
+    r?.notes?.length ? el('h3', { textContent: 'Notes' }) : null,
+    r?.notes?.length ? list(r.notes) : null,
+    ...(data.diffs ?? []).flatMap((w) => [
+      el('h3', { textContent: `${w.repo} — ${w.branch} (from ${w.base})` }),
+      el('p', { className: 'muted', style: 'font-size:12px', textContent: `${w.missing ? 'Worktree removed: ' : 'Worktree: '}${w.path}${w.sourceDirty ? ' · your checkout had uncommitted changes that are not in this worktree' : ''}` }),
+      w.missing ? null : diffView(w.diff),
+    ]),
+    done ? el('p', { className: 'muted', style: 'margin-top:12px', textContent: d.status === 'approved' ? 'Approved. The changes are uncommitted in the worktree(s) above — open the folder, review, and commit them yourself.' : 'Discarded.' }) : el('div', { className: 'review' },
+      el('strong', { textContent: 'Your review' }),
+      devFeedback,
+      el('div', { className: 'toolbar' },
+        actionButton('Request changes', review('changes')),
+        r ? actionButton('Approve — keep uncommitted', review('approve'), true) : null,
+        actionButton('Discard', review('discard'), 'Confirm → delete worktrees + branch'),
+        msg)),
+  )));
+}
+
+function renderDevelopments(items) {
+  if (!has('developments')) return;
+  $('devCount').textContent = items.length ? `(${items.length})` : '';
+  $('devEmpty').hidden = items.length > 0;
+  $('developments').replaceChildren(...items.flatMap((d) => {
+    const [tone, label] = DEV[d.status] ?? ['idle', d.status];
+    const row = el('tr', {},
+      el('td', {}, el('a', { href: d.link, target: '_blank', rel: 'noopener', textContent: `Bug ${d.bugId}` }), el('div', { className: 'muted', textContent: d.title })),
+      el('td', {}, el('span', { className: `pill dot ${tone}`, textContent: label }), d.ado ? el('div', { className: 'muted', style: 'font-size:11px;margin-top:4px', textContent: d.ado }) : null),
+      el('td', {}, ...d.worktrees.map((w) => el('div', {}, el('code', { textContent: w.repo }), el('div', { className: 'muted', style: 'font-size:11px', textContent: `${w.branch} ← ${w.base}` })))),
+      el('td', {}, d.result ? el('span', { className: `pill ${d.result.failed ? 'bad' : 'ok'}`, textContent: `v${d.result.version} · ${d.result.files} file${d.result.files === 1 ? '' : 's'} · ${d.result.passed}✓${d.result.failed ? ` ${d.result.failed}✗` : ''}` }) : el('span', { className: 'muted', textContent: '—' })),
+      el('td', { className: 'when', textContent: ago(d.startedAt) }),
+      el('td', {}, el('div', { className: 'actions' },
+        d.status !== 'discarded' ? actionButton('Terminal', () => postJson(`/api/bugs/${d.bugId}/dev-terminal`)) : null,
+        actionButton(devOpen === d.bugId ? 'Hide changes' : 'Changes', async () => { devOpen = devOpen === d.bugId ? null : d.bugId; if (devOpen) await loadDev(d.bugId); render(last, true); }))));
+    return [row, devOpen === d.bugId ? devRow(d) : null].filter(Boolean);
+  }));
+}
+
+function renderReadyToDevelop(d) {
+  if (!has('readyToDevelop')) return;
+  const busy = new Set((d.developments ?? []).filter((x) => x.status !== 'discarded').map((x) => x.bugId));
+  const ready = (d.investigations ?? []).filter((i) => i.status === 'approved' && !busy.has(i.bugId));
+  $('readyEmpty').hidden = ready.length > 0;
+  $('readyToDevelop').replaceChildren(...ready.map((i) => el('tr', {},
+    el('td', {}, el('a', { href: i.link, target: '_blank', rel: 'noopener', textContent: `Bug ${i.bugId}` }), el('div', { className: 'muted', textContent: i.title })),
+    el('td', {}, i.report ? el('span', { className: `pill ${VERDICT_TONE[i.report.verdict] ?? 'idle'}`, textContent: `v${i.report.version} · ${i.report.verdict}` }) : '—'),
+    el('td', { className: 'when', textContent: ago(i.updatedAt) }),
+    el('td', {}, el('div', { className: 'actions' }, d.developerOn ? actionButton('Start developer', () => startDeveloper(i.bugId), 'Confirm → start (Azure DevOps: Active / In Development)') : null)),
+  )));
 }
 
 // ── Add a work item by id ───────────────────────────────────────────────
@@ -584,7 +719,7 @@ function renderSkipped(items) {
 }
 
 const ACTIONS = { all: 'All', created: 'Created', annotated: 'Notes', reopened: 'Reopened', done: 'Done', ignored: 'Ignored', error: 'Errors' };
-const SOURCES = { all: 'All sources', ado: 'Azure DevOps', whatsapp: 'WhatsApp', investigator: 'Investigator', dashboard: 'You' };
+const SOURCES = { all: 'All sources', ado: 'Azure DevOps', whatsapp: 'WhatsApp', investigator: 'Investigator', developer: 'Developer', dashboard: 'You' };
 const TONE = { created: 'ok', annotated: 'info', reopened: 'warn', done: 'ok', ignored: 'idle', error: 'bad' };
 let filter = { source: 'all' };
 let last;
@@ -636,9 +771,12 @@ function render(d, force = false) {
   renderSources(d.sources);
   // Don't wipe a note or review being typed; the next refresh after closing catches up.
   const typing = noteFormFor !== null || (feedbackBox && reportOpen && (feedbackBox.value || document.activeElement === feedbackBox));
-  if (force || !typing) {
+  const typingDev = devFeedback && devOpen && (devFeedback.value || document.activeElement === devFeedback);
+  if (force || !(typing || typingDev)) {
     renderTasks(d.tasks);
     renderInvestigations(d.investigations ?? []);
+    renderDevelopments(d.developments ?? []);
+    renderReadyToDevelop(d);
   }
   renderIgnored(d.ignoredBugs ?? []);
   window.Shell?.setUpdated(`Updated ${new Date(d.now).toLocaleTimeString()}`);

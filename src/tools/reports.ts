@@ -84,4 +84,35 @@ export const reportTools = [
       return reportsOf(ctx).list(a.bugId);
     },
   }),
+  defineTool({
+    name: 'save_dev_result',
+    description:
+      'Developer agent: record what you implemented for a bug — a short summary, the files changed per repo, and the tests you ran with their result. ' +
+      'Each call is a new version. Changes stay uncommitted in the worktree; the developer reviews them on the dashboard.',
+    input: {
+      bugId: z.number().int().positive(),
+      sessionId: z.string().optional().describe('Your session id, if known'),
+      summary: short(400, 'What you changed and why, in 2-3 plain sentences'),
+      changes: z.array(z.object({ repo: z.string().min(1), files: z.array(z.string().min(1)).min(1).max(20) })).min(1).max(6),
+      tests: z
+        .array(z.object({ command: z.string().min(1).max(200), result: z.enum(['passed', 'failed', 'not-run']), note: z.string().max(300).optional() }))
+        .max(6)
+        .describe('Each test/type-check/lint command you ran and its result; not-run with a note if there was none'),
+      notes: z.array(short(250, 'One note')).max(4).default([]).describe('Only what the reviewer must know: deviations from the report, follow-ups'),
+    },
+    async run(ctx, a) {
+      const { bugId, sessionId, ...body } = a;
+      const saved = reportsOf(ctx).saveDevResult(bugId, body, sessionId);
+      return { bugId, version: saved.version, saved: true };
+    },
+  }),
+  defineTool({
+    name: 'get_dev_result',
+    description: "Developer agent: read your latest result for a bug, the developer's reviews and feedback on it, and the approved report you are implementing.",
+    input: { bugId: z.number().int().positive() },
+    async run(ctx, a) {
+      const db = reportsOf(ctx);
+      return { result: db.devResult(a.bugId) ?? null, reviews: db.devReviews(a.bugId), report: db.get(a.bugId) ?? null };
+    },
+  }),
 ];

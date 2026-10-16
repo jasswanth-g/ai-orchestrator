@@ -250,3 +250,31 @@ these sessions — keep Bash/Edit allow rules out of it, or they reach the Inves
 
 ONDC protocol knowledge: not wired yet — the report lists protocol questions it
 can't confirm as open questions.
+
+## Developer
+
+On an **approved** Investigator report, click **Start developer** (on the
+report, or under "Approved reports ready to develop" on the Developer page).
+For each repo the fix touches, the agents server creates a **git worktree** on a
+new branch `fix/bug-<id>`, branched from the commit your checkout is on — your
+checkout and its uncommitted work are never touched (the brief says if you had
+uncommitted changes there that the worktree doesn't include). It writes
+`DEV-BRIEF.md` (the approved report, your review notes and comments, the
+worktrees), moves the work item to its start state in ADO (Bug/Task → Active,
+Story/Issue → In Development) and opens an interactive Claude Code session in
+iTerm with `prompts/developer.md`.
+
+The Developer implements the fix, runs the repo's type-check/tests/lint, and
+records the result with `save_dev_result` (summary, files per repo, each check
+and its result). The Developer page shows the result and the **actual diff** of
+each worktree, with **Approve — keep uncommitted**, **Request changes** (typed
+into its terminal) and **Discard** (removes the worktrees and the fix branch).
+**Nothing is ever committed**: after approving, open the worktree folder, review,
+and commit it yourself. Then use Done on the task to resolve it in ADO.
+
+Each bug's folder is `<state>/developer/bug-<id>/` (DEV-BRIEF.md, settings.json,
+mcp.json, run.sh, and one worktree per repo).
+
+| Runs without asking | Asks you in the terminal | Refused |
+|---|---|---|
+| Read anywhere in the repos; Edit inside its worktrees; `cd`, `ls`, `git status/diff/log/show/blame/grep/ls-files`; `npm test`, `bun test`, `npx tsc/jest/vitest/eslint`, `pnpm/yarn test`; the three report tools | anything else, e.g. `npm run …` (scripts can deploy), `npm ci` / `bun install` | Edit in your original checkouts; `git commit/push/checkout/switch/reset/rebase/merge/stash/clean/worktree/branch -d/-D/cherry-pick/revert/tag/remote/config`; `rm -rf`; web; every other MCP server; your hooks |

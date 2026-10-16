@@ -7,6 +7,7 @@ import type { Receiver } from '../events/receiver.ts';
 import type { ReportsDb } from '../store/reports.ts';
 import type { Store } from '../store/store.ts';
 import type { Item } from '../types.ts';
+import type { Developer } from '../developer/service.ts';
 import type { Investigator } from '../investigator/service.ts';
 import type { BridgeSupervisor } from '../whatsapp/bridge.ts';
 import { listChats } from '../whatsapp/receiver.ts';
@@ -27,7 +28,7 @@ const ASSETS: Record<string, { file: ReturnType<typeof Bun.file>; type: string }
 };
 const AGENT_SOURCES = ['azure-devops', 'whatsapp'];
 /** One page, three views: the client shows the sections for its path. */
-const PAGES = new Set(['/', '/messenger', '/investigator', '/activity']);
+const PAGES = new Set(['/', '/messenger', '/investigator', '/developer', '/activity']);
 const TRACKED_DAYS = 90;
 /** Work item type labels the intake adds (toLabel of System.WorkItemType). */
 const TYPE_LABELS = ['bug', 'task', 'story', 'issue', 'feature', 'epic'];
@@ -56,6 +57,8 @@ export function agentsDashboard(o: {
   bugNotes: BugNotes;
   /** Unset when ADO is off or failed to start. */
   investigator?: Investigator;
+  /** Unset when ADO is off. */
+  developer?: Developer;
   /** For Done → Azure DevOps state changes; unset when ADO is off. */
   ado?: AdoClient;
   reports?: ReportsDb;
@@ -88,6 +91,7 @@ export function agentsDashboard(o: {
       return r ? { enabled: true, ...(await r.status()) } : { enabled: false };
     };
     const investigations = new Map((await o.investigator?.refresh())?.map((i) => [i.bugId, i]) ?? []);
+    const devSessions = new Map((await o.developer?.refresh())?.map((d) => [d.bugId, d]) ?? []);
     const tasks = (await o.store.list('work'))
       .filter((t) => AGENT_SOURCES.includes(t.source))
       .map((t) => {
@@ -106,6 +110,7 @@ export function agentsDashboard(o: {
           // What Done does in Azure DevOps (undefined = nothing is sent).
           donePlan: bugId && o.ado ? doneLabel(TYPE_LABELS.find((l) => t.labels.includes(l)), o.reports?.get(bugId)?.verdict) : undefined,
           investigation: bugId ? investigations.get(bugId) : undefined,
+          development: bugId ? devSessions.get(bugId) : undefined,
         };
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -118,6 +123,15 @@ export function agentsDashboard(o: {
       },
       tasks,
       investigatorOn: !!o.investigator,
+      developerOn: !!o.developer,
+      developments: [...devSessions.values()].map((d) => {
+        const r = o.reports?.devResult(d.bugId);
+        return {
+          ...d,
+          link: o.investigator?.bugUrl(d.bugId),
+          result: r ? { version: r.version, passed: r.tests.filter((t) => t.result === 'passed').length, failed: r.tests.filter((t) => t.result === 'failed').length, files: r.changes.reduce((n, c) => n + c.files.length, 0) } : undefined,
+        };
+      }),
       knowledgeFile: o.investigator?.knowledgeFile,
       investigations: [...investigations.values()].map((i) => {
         const r = o.investigator!.report(i.bugId).report;
@@ -284,6 +298,21 @@ export function agentsDashboard(o: {
       }
     }
 
+    if ((m = /^\/api\/bugs\/(\d+)\/(develop|dev-terminal|dev-review)$/.exec(path))) {
+      if (!o.developer) throw new HttpError(409, 'Developer is off — Azure DevOps is not connected');
+      const bugId = Number(m[1]);
+      try {
+        if (m[2] === 'develop') return await o.developer.start(bugId);
+        if (m[2] === 'dev-terminal') return { result: await o.developer.openTerminal(bugId) };
+        const decision = body.decision;
+        if (decision !== 'approve' && decision !== 'changes' && decision !== 'discard') throw new HttpError(400, 'decision: approve | changes | discard');
+        return await o.developer.review(bugId, decision, typeof body.feedback === 'string' ? body.feedback : undefined);
+      } catch (err) {
+        if (err instanceof HttpError) throw err;
+        throw new HttpError(400, err instanceof Error ? err.message : String(err));
+      }
+    }
+
     if ((m = /^\/api\/bugs\/(\d+)\/notes\/(\d+)\/delete$/.exec(path))) {
       if (!o.bugNotes.remove(Number(m[1]), Number(m[2]))) throw new HttpError(404, 'no such note');
       return { ok: true };
@@ -305,6 +334,8 @@ export function agentsDashboard(o: {
         if (url.pathname === '/api/overview') return Response.json(await overview(), { headers: { 'Cache-Control': 'no-store' } });
         if (url.pathname === '/api/whatsapp/chats') return Response.json(chats(), { headers: { 'Cache-Control': 'no-store' } });
         if (url.pathname === '/api/activity') return Response.json(searchActivity(url.searchParams), { headers: { 'Cache-Control': 'no-store' } });
+        const dev = /^\/api\/bugs\/(\d+)\/dev$/.exec(url.pathname);
+        if (dev && o.developer) return Response.json(o.developer.changes(Number(dev[1])), { headers: { 'Cache-Control': 'no-store' } });
         const rep = /^\/api\/bugs\/(\d+)\/report$/.exec(url.pathname);
         if (rep && o.investigator) return Response.json(o.investigator.report(Number(rep[1])), { headers: { 'Cache-Control': 'no-store' } });
         throw new HttpError(404, 'not found');

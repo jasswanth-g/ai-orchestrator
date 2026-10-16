@@ -21,10 +21,10 @@ beforeEach(() => {
   ctx = { store, filesRoot: '/work', today: () => '2026-10-01', exists: (p) => existing.has(p) };
 });
 
-test('exposes 24 tools with unique names', () => {
+test('exposes 26 tools with unique names', () => {
   const names = ALL_TOOLS.map((t) => t.name);
-  expect(names).toHaveLength(24);
-  expect(new Set(names).size).toBe(24);
+  expect(names).toHaveLength(26);
+  expect(new Set(names).size).toBe(26);
 });
 
 describe('edit_question', () => {
